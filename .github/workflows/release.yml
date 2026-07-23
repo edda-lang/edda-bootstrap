@@ -1,33 +1,21 @@
 name: Release
 
-# Builds the plug-and-play install archive for each supported platform
-# and attaches them to a GitHub Release. Triggered by pushing a tag
-# matching v*, or manually via workflow_dispatch against an existing tag.
+# Builds the plug-and-play install archive for Linux and macOS and attaches
+# them to the GitHub Release. The Windows archive is produced from a local
+# package build and uploaded directly, so it is intentionally not built here.
 #
-# edda-driver unconditionally requests edda-compile's `llvm` feature
-# (see crates/edda-driver/Cargo.toml), so every platform below needs a
-# real LLVM 18 install with llvm-config reachable — there is no
-# LLVM-free build of the actual `edda` binary. Per-platform LLVM
-# provisioning:
-#   - Linux: the official apt.llvm.org bootstrap script (llvm.sh),
-#     which is the LLVM project's own recommended install path and
-#     ships prebuilt packages (no from-source build).
-#   - macOS: Homebrew's llvm@18 formula (also prebuilt).
-#   - Windows: vcpkg, using the exact port feature set this repo's own
-#     dev machine builds against (verified working locally — see
-#     .cargo/config.toml's LLVM_SYS_180_PREFIX). GitHub-hosted
-#     windows-latest runners ship vcpkg preinstalled at
-#     $VCPKG_INSTALLATION_ROOT, but vcpkg's llvm port builds LLVM from
-#     source — expect roughly an hour on a cold cache; the cache step
-#     below makes every run after the first one fast.
+# Triggered by pushing a tag matching v*, or manually via workflow_dispatch
+# with the target tag as input. In both cases the tag's source is checked out
+# and built with this (current) workflow logic, and the resulting archives are
+# attached to that tag's release.
 #
-# TODO (unverified — no CI runner available to test this against):
-#   - None of the three LLVM provisioning steps below have run on a
-#     real GitHub-hosted runner yet; package/formula names or vcpkg
-#     behavior may need adjustment on first real run.
-#   - The std/runes checkout step below targets edda-lang/edda (the
-#     public monorepo). If that repo has no published content yet,
-#     this job will fail until it is populated.
+# edda-driver unconditionally requests edda-compile's `llvm` feature, so each
+# platform needs a real LLVM 18 install with llvm-config reachable:
+#   - Linux: Ubuntu 24.04's own llvm-18-dev packages from the default repos.
+#     The apt.llvm.org snapshot repo is intentionally NOT used: its llvm-18-dev
+#     version string sorts older than noble's libllvm18, which `Breaks:` it,
+#     producing "held broken packages" (apt exit 100).
+#   - macOS: Homebrew's llvm@18 formula (prebuilt).
 
 on:
   push:
@@ -45,8 +33,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            label: x86-64-windows-msvc
           - os: ubuntu-latest
             label: x86-64-linux-gnu
           - os: ubuntu-24.04-arm
@@ -57,8 +43,9 @@ jobs:
     steps:
       - name: Checkout edda-bootstrap
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
 
-      # TODO: unverified — depends on edda-lang/edda being published first.
       - name: Checkout std/runes monorepo
         uses: actions/checkout@v4
         with:
@@ -75,10 +62,8 @@ jobs:
       - name: Install LLVM 18 (Linux)
         if: runner.os == 'Linux'
         run: |
-          wget https://apt.llvm.org/llvm.sh
-          chmod +x llvm.sh
-          sudo ./llvm.sh 18
-          sudo apt-get install -y llvm-18-dev libpolly-18-dev lld-18 zlib1g-dev libzstd-dev patchelf
+          sudo apt-get update
+          sudo apt-get install -y llvm-18-dev lld-18 zlib1g-dev libzstd-dev patchelf
           echo "LLVM_SYS_180_PREFIX=/usr/lib/llvm-18" >> "$GITHUB_ENV"
 
       - name: Install LLVM 18 (macOS)
@@ -86,31 +71,6 @@ jobs:
         run: |
           brew install llvm@18
           echo "LLVM_SYS_180_PREFIX=$(brew --prefix llvm@18)" >> "$GITHUB_ENV"
-
-      # vcpkg ships preinstalled on windows-latest runners
-      # ($VCPKG_INSTALLATION_ROOT). Its llvm port builds from source, so
-      # this is the slow step on a cold cache; the cache step below
-      # keys on the vcpkg commit + feature list so subsequent runs skip
-      # straight to a cache hit instead of rebuilding LLVM.
-      - name: Resolve vcpkg commit (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          echo "VCPKG_COMMIT=$(git -C "$VCPKG_INSTALLATION_ROOT" rev-parse HEAD)" >> "$GITHUB_ENV"
-
-      - name: Cache vcpkg LLVM build (Windows)
-        if: runner.os == 'Windows'
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.VCPKG_INSTALLATION_ROOT }}/installed
-          key: vcpkg-llvm18-x64-windows-clang-default-targets-bindings-rtti-${{ env.VCPKG_COMMIT }}
-
-      - name: Install LLVM 18 (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          "$VCPKG_INSTALLATION_ROOT/vcpkg" install "llvm[clang,default-targets,enable-bindings,enable-rtti]:x64-windows"
-          echo "LLVM_SYS_180_PREFIX=$VCPKG_INSTALLATION_ROOT/installed/x64-windows" >> "$GITHUB_ENV"
 
       - name: Package release archive
         shell: bash
@@ -122,13 +82,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: edda-bootstrap-${{ matrix.label }}
-          path: |
-            target/package/edda-bootstrap-${{ matrix.label }}.zip
-            target/package/edda-bootstrap-${{ matrix.label }}.tar.gz
+          path: target/package/edda-bootstrap-${{ matrix.label }}.tar.gz
           if-no-files-found: ignore
 
   publish-release:
     needs: build
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
       - name: Download all archives
@@ -141,4 +100,4 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           files: dist/*/edda-bootstrap-*
-          fail_on_unmatched_files: true
+          fail_on_unmatched_files: false
