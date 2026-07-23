@@ -560,7 +560,7 @@ dependencies = [
 
 [[package]]
 name = "edda-cache"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "blake3",
  "edda-diag",
@@ -573,7 +573,7 @@ dependencies = [
 
 [[package]]
 name = "edda-cli"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "edda-cache",
  "edda-diag",
@@ -586,7 +586,7 @@ dependencies = [
 
 [[package]]
 name = "edda-codegen"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "edda-cache",
  "edda-comptime",
@@ -601,7 +601,7 @@ dependencies = [
 
 [[package]]
 name = "edda-compile"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "edda-diag",
  "edda-intern",
@@ -613,7 +613,7 @@ dependencies = [
 
 [[package]]
 name = "edda-comptime"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "ahash",
  "edda-diag",
@@ -627,7 +627,7 @@ dependencies = [
 
 [[package]]
 name = "edda-daemon"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "edda-cache",
  "edda-diag",
@@ -639,14 +639,14 @@ dependencies = [
 
 [[package]]
 name = "edda-diag"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "edda-span",
 ]
 
 [[package]]
 name = "edda-driver"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "edda-cache",
  "edda-codegen",
@@ -677,7 +677,7 @@ dependencies = [
 
 [[package]]
 name = "edda-intern"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "ahash",
  "parking_lot",
@@ -685,7 +685,7 @@ dependencies = [
 
 [[package]]
 name = "edda-link"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "edda-diag",
  "edda-span",
@@ -696,7 +696,7 @@ dependencies = [
 
 [[package]]
 name = "edda-lsp"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "crossbeam-channel",
  "edda-daemon",
@@ -714,7 +714,7 @@ dependencies = [
 
 [[package]]
 name = "edda-manifest"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "edda-cache",
  "edda-diag",
@@ -726,7 +726,7 @@ dependencies = [
 
 [[package]]
 name = "edda-mcp"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "edda-daemon",
  "edda-diag",
@@ -738,7 +738,7 @@ dependencies = [
 
 [[package]]
 name = "edda-mimir-archive"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "edda-cache",
  "tar",
@@ -748,11 +748,11 @@ dependencies = [
 
 [[package]]
 name = "edda-mimir-canonical"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "edda-mimir-crypto"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dirs",
  "ed25519-dalek",
@@ -762,7 +762,7 @@ dependencies = [
 
 [[package]]
 name = "edda-mimir-hash"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "edda-cache",
  "edda-diag",
@@ -776,7 +776,7 @@ dependencies = [
 
 [[package]]
 name = "edda-mimir-registry"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -787,7 +787,7 @@ dependencies = [
 
 [[package]]
 name = "edda-mir"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "ahash",
  "edda-comptime",
@@ -802,7 +802,7 @@ dependencies = [
 
 [[package]]
 name = "edda-refine"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "edda-cache",
  "edda-diag",
@@ -815,7 +815,7 @@ dependencies = [
 
 [[package]]
 name = "edda-resolve"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "edda-cache",
  "edda-diag",
@@ -827,7 +827,7 @@ dependencies = [
 
 [[package]]
 name = "edda-rt"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -859,25 +859,25 @@ dependencies = [
 
 [[package]]
 name = "edda-rt-alloc"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "edda-rt-stats",
 ]
 
 [[package]]
 name = "edda-rt-stats"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "edda-span"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "parking_lot",
 ]
 
 [[package]]
 name = "edda-structmap"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "edda-intern",
  "edda-resolve",
@@ -889,7 +889,7 @@ dependencies = [
 
 [[package]]
 name = "edda-syntax"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "edda-diag",
  "edda-intern",
@@ -898,14 +898,14 @@ dependencies = [
 
 [[package]]
 name = "edda-target"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "edda-diag",
 ]
 
 [[package]]
 name = "edda-types"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "ahash",
  "edda-diag",
@@ -2892,7 +2892,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "edda-diag",
  "edda-intern",
