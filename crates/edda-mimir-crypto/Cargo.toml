@@ -1,0 +1,18 @@
+[package]
+name = "edda-mimir-crypto"
+description = "ed25519 publisher-key signing, verification, and fingerprinting for the Mímir package-management surface."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+edda-cache.workspace = true
+# ed25519-dalek v2 — sign, verify, key-generation (rand-backed via OsRng).
+# Disable serde: we provide our own PEM/bytes serialisation.
+ed25519-dalek = { version = "2", default-features = false, features = ["rand_core", "zeroize"] }
+# Cross-platform config-directory resolution for default_keystore_dir().
+dirs = "5"
+# OsRng for keypair generation.
+rand = "0.8"

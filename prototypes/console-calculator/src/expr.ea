@@ -1,0 +1,45 @@
+
+
+
+
+public type Op {
+    case add
+    case subtract
+    case multiply
+    case divide
+}
+
+
+
+
+public type Expr {
+    left: f64
+    op: Op
+    right: f64
+}
+
+
+
+public type EvalError {
+    case division_by_zero
+}
+
+
+
+
+
+public function evaluate(e: Expr) -> f64
+    with {err: EvalError}
+{
+    return match e.op {
+        case .add      => e.left + e.right
+        case .subtract => e.left - e.right
+        case .multiply => e.left * e.right
+        case .divide   => {
+            if e.right == 0.0 {
+                raise EvalError.division_by_zero
+            }
+            e.left / e.right
+        }
+    }
+}

@@ -1,0 +1,77 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+public type AuditEventKind {
+    
+    case enqueued
+
+    
+    case acquired
+
+    
+    case heartbeat_extended
+
+    
+    case completed
+
+    
+    
+    
+    case failed
+
+    
+    case lease_expired
+
+    
+    
+    
+    case retry_scheduled
+
+    
+    
+    case dead_lettered
+
+    
+    
+    
+    
+    case cancelled
+
+    
+    case worker_registered
+
+    
+    
+    
+    case worker_deregistered
+
+    
+    case promoted
+}
+
+
+public type AuditEvent {
+    event_id: u64 where event_id >= 1,
+    at_nanos: i64 where at_nanos >= 0,
+    kind: AuditEventKind,
+    job_id: u64,
+    worker_id: u64,
+    payload: String,
+}

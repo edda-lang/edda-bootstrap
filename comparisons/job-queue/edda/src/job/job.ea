@@ -1,0 +1,178 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+public let MIN_PRIORITY: u32 = 1
+
+
+public let MAX_PRIORITY: u32 = 10
+
+
+public let DEFAULT_PRIORITY: u32 = 5
+
+
+
+public let JOB_ID_NONE: u64 = 0
+
+
+public let WORKER_ID_NONE: u64 = 0
+
+
+
+
+
+public let DEFAULT_NAMESPACE: String = "default"
+
+
+
+
+
+
+
+
+
+
+public type Job {
+    id: u64,
+    payload: String,
+    attempt: u32,
+    priority: u32 where priority >= 1 && priority <= 10,
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+public type PendingEntry {
+    job: Job,
+    namespace: String,
+    available_at_nanos: i64 where available_at_nanos >= 0,
+    scheduled_at_nanos: i64 where scheduled_at_nanos >= 0,
+    seq: u64,
+    depends_on: [u64],
+    required_capabilities: [String],
+}
+
+
+
+
+
+
+
+public type LeasedEntry {
+    job: Job,
+    namespace: String,
+    worker_id: u64,
+    lease_expires_at_nanos: i64 where lease_expires_at_nanos >= 0,
+    scheduled_at_nanos: i64 where scheduled_at_nanos >= 0,
+    seq: u64,
+    depends_on: [u64],
+    required_capabilities: [String],
+}
+
+
+
+
+
+
+
+public type DeadEntry {
+    job: Job,
+    namespace: String,
+    final_reason: String,
+}
+
+
+
+
+
+public type CancelledEntry {
+    job: Job,
+    namespace: String,
+    cancellation_reason: String,
+    at_nanos: i64 where at_nanos >= 0,
+}
+
+
+
+
+public type QueueConfig {
+    active_capacity: usize where active_capacity > 0,
+    dead_letter_capacity: usize where dead_letter_capacity > 0,
+    max_attempts: u32 where max_attempts > 0,
+    backoff_base_nanos: i64 where backoff_base_nanos > 0,
+    backoff_cap_nanos: i64 where backoff_cap_nanos >= backoff_base_nanos,
+    jitter_fraction_per_million: u32 where jitter_fraction_per_million <= 1_000_000,
+    default_lease_nanos: i64 where default_lease_nanos > 0,
+    audit_retention: usize where audit_retention > 0,
+}
+
+
+
+
+public stable function config(
+    active_capacity: usize where active_capacity > 0,
+    dead_letter_capacity: usize where dead_letter_capacity > 0,
+    max_attempts: u32 where max_attempts > 0,
+    backoff_base_nanos: i64 where backoff_base_nanos > 0,
+    backoff_cap_nanos: i64 where backoff_cap_nanos >= backoff_base_nanos,
+    jitter_fraction_per_million: u32 where jitter_fraction_per_million <= 1_000_000,
+    default_lease_nanos: i64 where default_lease_nanos > 0,
+    audit_retention: usize where audit_retention > 0,
+) -> QueueConfig {
+    return QueueConfig {
+        active_capacity: active_capacity,
+        dead_letter_capacity: dead_letter_capacity,
+        max_attempts: max_attempts,
+        backoff_base_nanos: backoff_base_nanos,
+        backoff_cap_nanos: backoff_cap_nanos,
+        jitter_fraction_per_million: jitter_fraction_per_million,
+        default_lease_nanos: default_lease_nanos,
+        audit_retention: audit_retention,
+    }
+}
+
+
+
+
+public type AcquiredJob {
+    job_id: u64,
+    payload: String,
+    attempt: u32,
+    priority: u32 where priority >= 1 && priority <= 10,
+    namespace: String,
+    lease_expires_at_nanos: i64 where lease_expires_at_nanos >= 0,
+}

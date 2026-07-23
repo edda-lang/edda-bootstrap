@@ -1,0 +1,266 @@
+import std.mem.alloc
+import local.audit
+import local.job.job
+import local.namespace
+import local.queue.queue.queue
+import local.retry.retry
+import local.worker.worker
+
+spec std.collections.vec.Vec(job.PendingEntry)
+spec std.collections.vec.Vec(job.LeasedEntry)
+spec std.collections.vec.Vec(job.DeadEntry)
+spec std.collections.vec.Vec(job.CancelledEntry)
+spec std.collections.vec.Vec(worker.WorkerEntry)
+spec std.collections.vec.Vec(namespace.NamespaceState)
+spec std.collections.vec.Vec(audit.AuditEvent)
+
+
+public type Snapshot {
+    cfg: job.QueueConfig,
+    pending: Vec_PendingEntry.Vec,
+    leased: Vec_LeasedEntry.Vec,
+    dead_letter: Vec_DeadEntry.Vec,
+    cancelled: Vec_CancelledEntry.Vec,
+    workers: Vec_WorkerEntry.Vec,
+    namespaces: Vec_NamespaceState.Vec,
+    audit_log: Vec_AuditEvent.Vec,
+    next_id: u64 where next_id >= 1,
+    next_seq: u64 where next_seq >= 1,
+    next_event_id: u64 where next_event_id >= 1,
+    last_seen_clock_nanos: i64 where last_seen_clock_nanos >= 0,
+    jitter: retry.Jitter,
+    strict_workers: bool,
+    enqueued_total: u64,
+    acquired_total: u64,
+    completed_total: u64,
+    failed_total: u64,
+    lease_expired_total: u64,
+    dead_lettered_total: u64,
+    retry_scheduled_total: u64,
+    cancelled_total: u64,
+    promoted_total: u64,
+}
+
+
+public function take_snapshot(q: queue.JobQueue, allocator: Allocator) -> Snapshot
+    with {allocator, err: alloc.AllocError}
+{
+    return Snapshot {
+        cfg: q.cfg,
+        pending: clone_pending(q.pending, allocator)?,
+        leased: clone_leased(q.leased, allocator)?,
+        dead_letter: clone_dead(q.dead_letter, allocator)?,
+        cancelled: clone_cancelled(q.cancelled, allocator)?,
+        workers: clone_workers(q.workers, allocator)?,
+        namespaces: clone_namespaces(q.namespaces, allocator)?,
+        audit_log: clone_audit_log(q.audit_log, q.cfg.audit_retention, allocator)?,
+        next_id: q.next_id,
+        next_seq: q.next_seq,
+        next_event_id: q.next_event_id,
+        last_seen_clock_nanos: q.last_seen_clock_nanos,
+        jitter: q.jitter,
+        strict_workers: q.strict_workers,
+        enqueued_total: q.enqueued_total,
+        acquired_total: q.acquired_total,
+        completed_total: q.completed_total,
+        failed_total: q.failed_total,
+        lease_expired_total: q.lease_expired_total,
+        dead_lettered_total: q.dead_lettered_total,
+        retry_scheduled_total: q.retry_scheduled_total,
+        cancelled_total: q.cancelled_total,
+        promoted_total: q.promoted_total,
+    }
+}
+
+
+
+public function restore(snap: Snapshot, allocator: Allocator) -> queue.JobQueue
+    with {allocator, err: alloc.AllocError}
+{
+    return queue.JobQueue {
+        cfg: snap.cfg,
+        pending: clone_pending(snap.pending, allocator)?,
+        leased: clone_leased(snap.leased, allocator)?,
+        dead_letter: clone_dead(snap.dead_letter, allocator)?,
+        cancelled: clone_cancelled(snap.cancelled, allocator)?,
+        workers: clone_workers(snap.workers, allocator)?,
+        namespaces: clone_namespaces(snap.namespaces, allocator)?,
+        audit_log: clone_audit_log(snap.audit_log, snap.cfg.audit_retention, allocator)?,
+        next_id: snap.next_id,
+        next_seq: snap.next_seq,
+        next_event_id: snap.next_event_id,
+        last_seen_clock_nanos: snap.last_seen_clock_nanos,
+        jitter: snap.jitter,
+        strict_workers: snap.strict_workers,
+        enqueued_total: snap.enqueued_total,
+        acquired_total: snap.acquired_total,
+        completed_total: snap.completed_total,
+        failed_total: snap.failed_total,
+        lease_expired_total: snap.lease_expired_total,
+        dead_lettered_total: snap.dead_lettered_total,
+        retry_scheduled_total: snap.retry_scheduled_total,
+        cancelled_total: snap.cancelled_total,
+        promoted_total: snap.promoted_total,
+    }
+}
+
+
+
+function clone_pending(
+    src: Vec_PendingEntry.Vec,
+    allocator: Allocator,
+) -> Vec_PendingEntry.Vec
+    with {allocator, err: alloc.AllocError}
+{
+    let n: usize = Vec_PendingEntry.len(src)
+    let data: [job.PendingEntry] = Vec_PendingEntry._alloc_array(allocator, 0)?
+    var out: Vec_PendingEntry.Vec = Vec_PendingEntry.Vec {
+        capacity: 0, len: 0, data: data,
+    }
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        Vec_PendingEntry.push(mutable out, Vec_PendingEntry.at(src, i), allocator)?
+        i = i + 1
+    }
+    return out
+}
+
+function clone_leased(
+    src: Vec_LeasedEntry.Vec,
+    allocator: Allocator,
+) -> Vec_LeasedEntry.Vec
+    with {allocator, err: alloc.AllocError}
+{
+    let n: usize = Vec_LeasedEntry.len(src)
+    let data: [job.LeasedEntry] = Vec_LeasedEntry._alloc_array(allocator, 0)?
+    var out: Vec_LeasedEntry.Vec = Vec_LeasedEntry.Vec {
+        capacity: 0, len: 0, data: data,
+    }
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        Vec_LeasedEntry.push(mutable out, Vec_LeasedEntry.at(src, i), allocator)?
+        i = i + 1
+    }
+    return out
+}
+
+function clone_dead(
+    src: Vec_DeadEntry.Vec,
+    allocator: Allocator,
+) -> Vec_DeadEntry.Vec
+    with {allocator, err: alloc.AllocError}
+{
+    let n: usize = Vec_DeadEntry.len(src)
+    let data: [job.DeadEntry] = Vec_DeadEntry._alloc_array(allocator, 0)?
+    var out: Vec_DeadEntry.Vec = Vec_DeadEntry.Vec {
+        capacity: 0, len: 0, data: data,
+    }
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        Vec_DeadEntry.push(mutable out, Vec_DeadEntry.at(src, i), allocator)?
+        i = i + 1
+    }
+    return out
+}
+
+function clone_cancelled(
+    src: Vec_CancelledEntry.Vec,
+    allocator: Allocator,
+) -> Vec_CancelledEntry.Vec
+    with {allocator, err: alloc.AllocError}
+{
+    let n: usize = Vec_CancelledEntry.len(src)
+    let data: [job.CancelledEntry] = Vec_CancelledEntry._alloc_array(allocator, 0)?
+    var out: Vec_CancelledEntry.Vec = Vec_CancelledEntry.Vec {
+        capacity: 0, len: 0, data: data,
+    }
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        Vec_CancelledEntry.push(mutable out, Vec_CancelledEntry.at(src, i), allocator)?
+        i = i + 1
+    }
+    return out
+}
+
+function clone_workers(
+    src: Vec_WorkerEntry.Vec,
+    allocator: Allocator,
+) -> Vec_WorkerEntry.Vec
+    with {allocator, err: alloc.AllocError}
+{
+    let n: usize = Vec_WorkerEntry.len(src)
+    let data: [worker.WorkerEntry] = Vec_WorkerEntry._alloc_array(allocator, 0)?
+    var out: Vec_WorkerEntry.Vec = Vec_WorkerEntry.Vec {
+        capacity: 0, len: 0, data: data,
+    }
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        Vec_WorkerEntry.push(mutable out, Vec_WorkerEntry.at(src, i), allocator)?
+        i = i + 1
+    }
+    return out
+}
+
+function clone_namespaces(
+    src: Vec_NamespaceState.Vec,
+    allocator: Allocator,
+) -> Vec_NamespaceState.Vec
+    with {allocator, err: alloc.AllocError}
+{
+    let n: usize = Vec_NamespaceState.len(src)
+    let data: [namespace.NamespaceState] = Vec_NamespaceState._alloc_array(allocator, 0)?
+    var out: Vec_NamespaceState.Vec = Vec_NamespaceState.Vec {
+        capacity: 0, len: 0, data: data,
+    }
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        Vec_NamespaceState.push(mutable out, Vec_NamespaceState.at(src, i), allocator)?
+        i = i + 1
+    }
+    return out
+}
+
+
+
+
+function clone_audit_log(
+    src: Vec_AuditEvent.Vec,
+    retention: usize where retention > 0,
+    allocator: Allocator,
+) -> Vec_AuditEvent.Vec
+    with {allocator, err: alloc.AllocError}
+{
+    let n: usize = Vec_AuditEvent.len(src)
+    let data: [audit.AuditEvent] = Vec_AuditEvent._alloc_array(allocator, retention)?
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        data[i] = Vec_AuditEvent.at(src, i)
+        i = i + 1
+    }
+    return Vec_AuditEvent.Vec {
+        capacity: retention,
+        len: n,
+        data: data,
+    }
+}

@@ -1,0 +1,153 @@
+
+
+import std.mem.alloc
+import local.assert.assert
+import local.clock.clock
+import local.queue.queue.queue
+import local.queue.snapshot.snapshot
+import local.queue.error as queue_error
+import local.test.support as test_support
+
+
+
+public function s161(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let no_caps: [String] = test_support.empty_str(allocator)?
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    let parent: u64 = queue.enqueue_full2(
+        mutable q, "p", 5, 0, "default", no_deps, no_caps, allocator,
+    )?
+    let deps: [u64] = test_support.one_u64(parent, allocator)?
+    let _blocked_high: u64 = queue.enqueue_full2(
+        mutable q, "high", 9, 0, "default", deps, no_caps, allocator,
+    )?
+    let eligible_low: u64 = queue.enqueue_full2(
+        mutable q, "low", 2, 0, "default", no_deps, no_caps, allocator,
+    )?
+    let clk: clock.LogicalClock = clock.new()
+    let outcome = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    return match outcome {
+        case .none => assert.assert_true(false, "s161: parent eligible — acquire must succeed")?
+        case .some(let a) => {
+            let _ = eligible_low
+            assert.assert_eq_u64(a.job_id, parent, "s161: parent acquired (highest eligible)")?
+        }
+    }
+}
+
+
+public function s162(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    queue.register_namespace(mutable q, "tight", 2, 5, allocator)?
+    let no_caps: [String] = test_support.empty_str(allocator)?
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    let id: u64 = queue.enqueue_full2(
+        mutable q, "a", 5, 0, "tight", no_deps, no_caps, allocator,
+    )?
+    let _ = queue.enqueue_full2(
+        mutable q, "b", 5, 0, "tight", no_deps, no_caps, allocator,
+    )?
+    let clk: clock.LogicalClock = clock.new()
+    let _ = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    queue.fail(mutable q, 1, id, "transient", clk, allocator)?
+    
+    
+    var raised: bool = false
+    handle err: queue_error.QueueError -> { raised = true } {
+        let _ = queue.enqueue_full2(
+            mutable q, "c", 5, 0, "tight", no_deps, no_caps, allocator,
+        )?
+    }
+    assert.assert_true(raised, "s162: retry-pending consumes namespace capacity")?
+}
+
+
+public function s163(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let caps: [String] = test_support.empty_str(allocator)?
+    queue.register_worker(mutable q, 1, caps, clk, allocator)?
+    let no_caps_required: [String] = test_support.empty_str(allocator)?
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    let _ = queue.enqueue_full2(
+        mutable q, "a", 5, 0, "ns_a", no_deps, no_caps_required, allocator,
+    )?
+    let _ = queue.enqueue_full2(
+        mutable q, "b", 5, 0, "ns_b", no_deps, no_caps_required, allocator,
+    )?
+    let first = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    let second = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    let got_first: bool = match first {
+        case .some(_) => true
+        case .none => false
+    }
+    let got_second: bool = match second {
+        case .some(_) => true
+        case .none => false
+    }
+    assert.assert_true(got_first, "s163: worker acquired ns_a job")?
+    assert.assert_true(got_second, "s163: same worker acquired ns_b job")?
+}
+
+
+public function s164(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let no_caps: [String] = test_support.empty_str(allocator)?
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    let a_id: u64 = queue.enqueue_full2(
+        mutable q, "a", 5, 0, "ns_a", no_deps, no_caps, allocator,
+    )?
+    let _b_id: u64 = queue.enqueue_full2(
+        mutable q, "b", 5, 0, "ns_b", no_deps, no_caps, allocator,
+    )?
+    let clk: clock.LogicalClock = clock.new()
+    let n: usize = queue.cancel(mutable q, a_id, "user", clk, allocator)?
+    assert.assert_eq_usize(n, 1, "s164: only the ns_a job is cancelled")?
+    assert.assert_eq_usize(queue.active_len(q), 1, "s164: ns_b job still active")?
+}
+
+
+
+public function s165(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let caps: [String] = test_support.empty_str(allocator)?
+    queue.register_worker(mutable q, 1, caps, clk, allocator)?
+    queue.register_namespace(mutable q, "tier1", 50, 10, allocator)?
+    let no_caps: [String] = test_support.empty_str(allocator)?
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    
+    let leased_id: u64 = queue.enqueue_full2(
+        mutable q, "leased", 5, 0, "tier1", no_deps, no_caps, allocator,
+    )?
+    let retry_id: u64 = queue.enqueue_full2(
+        mutable q, "retry", 5, 0, "tier1", no_deps, no_caps, allocator,
+    )?
+    let plain_id: u64 = queue.enqueue_full2(
+        mutable q, "plain", 5, 0, "tier1", no_deps, no_caps, allocator,
+    )?
+    let _ = plain_id
+    let _ = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    let _ = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    queue.fail(mutable q, 1, retry_id, "transient", clk, allocator)?
+    
+    let pre_audit_len: usize = queue.audit_len(q)
+    let snap: snapshot.Snapshot = snapshot.take_snapshot(q, allocator)?
+    let restored: queue.JobQueue = snapshot.restore(snap, allocator)?
+    assert.assert_eq_usize(queue.audit_len(restored), pre_audit_len, "s165: audit survives")?
+    assert.assert_eq_usize(queue.leased_len(restored), 1, "s165: leased survives")?
+    let _ = leased_id
+    let workers = queue.list_workers(restored, allocator)?
+    assert.assert_eq_usize(workers.len(), 1, "s165: workers survive")?
+    assert.assert_eq_usize(queue.namespace_count(restored), 2, "s165: namespaces survive")?
+}

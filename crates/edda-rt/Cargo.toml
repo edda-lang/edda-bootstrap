@@ -1,0 +1,48 @@
+[package]
+name = "edda-rt"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version.workspace = true
+
+[lib]
+crate-type = ["staticlib"]
+
+# RustCrypto pure-Rust backends for the std.crypto.* runtime externs.
+# Pure Rust keeps edda-rt cross-compilable
+# to every target triple with no C/asm toolchain.
+[dependencies]
+edda-rt-alloc = { path = "../edda-rt-alloc" }
+edda-rt-stats = { path = "../edda-rt-stats" }
+aes-gcm = "0.10"
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+sha2 = { version = "0.10", features = ["oid"] }
+getrandom = "0.2"
+subtle = "2"
+zeroize = "1"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+ed25519-dalek = "2"
+p256 = { version = "0.13", features = ["ecdh", "ecdsa"] }
+p384 = { version = "0.13", features = ["ecdh", "ecdsa"] }
+p521 = { version = "0.13", features = ["ecdsa"] }
+k256 = { version = "0.13", features = ["ecdsa"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+crypto-bigint = "0.5"
+num-bigint-dig = { version = "0.8", features = ["prime"] }
+num-integer = "0.1"
+num-traits = "0.2"
+rsa = "0.9"
+digest = "0.10"
+const-oid = "0.9"
+x509-parser = "0.16"
+curve25519-dalek = "4"
+
+# mimalloc replaces the default Windows-heap global allocator for every
+# Edda-linked binary (the NT back-end heap's
+# free lists degrade under the compiler's medium-block churn, making
+# late-sequence allocations positionally slower). Scoped to the x86-64 MSVC
+# host triple so every other target keeps the pure-Rust, no-C-toolchain
+# cross-compilability documented above.
+[target.'cfg(all(target_env = "msvc", target_arch = "x86_64"))'.dependencies]
+mimalloc = { version = "0.1", default-features = false }

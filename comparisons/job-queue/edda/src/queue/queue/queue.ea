@@ -1,0 +1,1946 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import std.mem.alloc
+import std.core.option
+import std.collections.vec
+import local.audit
+import local.clock.clock
+import local.job.job
+import local.metrics
+import local.namespace
+import local.queue.dead.letter as dead_letter
+import local.queue.error as queue_error
+import local.retry.retry
+import local.worker.worker
+
+spec std.collections.vec.Vec(job.PendingEntry)
+spec std.collections.vec.Vec(job.LeasedEntry)
+spec std.collections.vec.Vec(job.DeadEntry)
+spec std.collections.vec.Vec(job.CancelledEntry)
+spec std.collections.vec.Vec(worker.WorkerEntry)
+spec std.collections.vec.Vec(worker.WorkerView)
+spec std.collections.vec.Vec(namespace.NamespaceState)
+spec std.collections.vec.Vec(audit.AuditEvent)
+spec std.collections.vec.Vec(metrics.NamespaceMetrics)
+spec std.collections.vec.Vec(u64)
+spec std.collections.vec.Vec(String)
+spec std.core.option.Option(job.AcquiredJob)
+spec std.core.option.Option(job.DeadEntry)
+spec std.core.option.Option(job.CancelledEntry)
+
+
+
+
+
+
+
+
+
+
+public type JobQueue {
+    cfg: job.QueueConfig,
+    pending: Vec_PendingEntry.Vec,
+    leased: Vec_LeasedEntry.Vec,
+    dead_letter: Vec_DeadEntry.Vec,
+    cancelled: Vec_CancelledEntry.Vec,
+    workers: Vec_WorkerEntry.Vec,
+    namespaces: Vec_NamespaceState.Vec,
+    audit_log: Vec_AuditEvent.Vec,
+    next_id: u64 where next_id >= 1,
+    next_seq: u64 where next_seq >= 1,
+    next_event_id: u64 where next_event_id >= 1,
+    last_seen_clock_nanos: i64 where last_seen_clock_nanos >= 0,
+    jitter: retry.Jitter,
+    strict_workers: bool,
+    enqueued_total: u64,
+    acquired_total: u64,
+    completed_total: u64,
+    failed_total: u64,
+    lease_expired_total: u64,
+    dead_lettered_total: u64,
+    retry_scheduled_total: u64,
+    cancelled_total: u64,
+    promoted_total: u64,
+}
+
+
+
+
+
+
+
+
+public function new(
+    cfg: job.QueueConfig,
+    seed: u64 where seed != 0,
+    allocator: Allocator,
+) -> JobQueue
+    with {allocator, err: alloc.AllocError}
+{
+    let pending_data: [job.PendingEntry] = Vec_PendingEntry._alloc_array(allocator, 0)?
+    let leased_data: [job.LeasedEntry] = Vec_LeasedEntry._alloc_array(allocator, 0)?
+    let dead_data: [job.DeadEntry] = Vec_DeadEntry._alloc_array(allocator, 0)?
+    let cancelled_data: [job.CancelledEntry] = Vec_CancelledEntry._alloc_array(allocator, 0)?
+    let workers_data: [worker.WorkerEntry] = Vec_WorkerEntry._alloc_array(allocator, 0)?
+    let namespaces_data: [namespace.NamespaceState] = Vec_NamespaceState._alloc_array(allocator, 0)?
+    let audit_data: [audit.AuditEvent] = Vec_AuditEvent._alloc_array(allocator, cfg.audit_retention)?
+    return JobQueue {
+        cfg: cfg,
+        pending: Vec_PendingEntry.Vec { capacity: 0, len: 0, data: pending_data },
+        leased: Vec_LeasedEntry.Vec { capacity: 0, len: 0, data: leased_data },
+        dead_letter: Vec_DeadEntry.Vec { capacity: 0, len: 0, data: dead_data },
+        cancelled: Vec_CancelledEntry.Vec { capacity: 0, len: 0, data: cancelled_data },
+        workers: Vec_WorkerEntry.Vec { capacity: 0, len: 0, data: workers_data },
+        namespaces: Vec_NamespaceState.Vec { capacity: 0, len: 0, data: namespaces_data },
+        audit_log: Vec_AuditEvent.Vec { capacity: cfg.audit_retention, len: 0, data: audit_data },
+        next_id: 1,
+        next_seq: 1,
+        next_event_id: 1,
+        last_seen_clock_nanos: 0,
+        jitter: retry.seed_jitter(seed),
+        strict_workers: false,
+        enqueued_total: 0,
+        acquired_total: 0,
+        completed_total: 0,
+        failed_total: 0,
+        lease_expired_total: 0,
+        dead_lettered_total: 0,
+        retry_scheduled_total: 0,
+        cancelled_total: 0,
+        promoted_total: 0,
+    }
+}
+
+
+
+
+
+
+public function active_len(q: JobQueue) -> usize {
+    return Vec_PendingEntry.len(q.pending)
+}
+
+
+public function leased_len(q: JobQueue) -> usize {
+    return Vec_LeasedEntry.len(q.leased)
+}
+
+
+public function dead_letter_len(q: JobQueue) -> usize {
+    return Vec_DeadEntry.len(q.dead_letter)
+}
+
+
+public function cancelled_len(q: JobQueue) -> usize {
+    return Vec_CancelledEntry.len(q.cancelled)
+}
+
+
+public function audit_len(q: JobQueue) -> usize {
+    return Vec_AuditEvent.len(q.audit_log)
+}
+
+
+public function dead_letter_at(
+    q: JobQueue,
+    i: usize where i < dead_letter_len(q),
+) -> job.DeadEntry {
+    return Vec_DeadEntry.at(q.dead_letter, i)
+}
+
+
+public function cancelled_at(
+    q: JobQueue,
+    i: usize where i < cancelled_len(q),
+) -> job.CancelledEntry {
+    return Vec_CancelledEntry.at(q.cancelled, i)
+}
+
+
+public function audit_at(
+    q: JobQueue,
+    i: usize where i < audit_len(q),
+) -> audit.AuditEvent {
+    return Vec_AuditEvent.at(q.audit_log, i)
+}
+
+
+
+
+
+spec std.core.option.Option(usize)
+
+
+
+
+function empty_str_slice(allocator: Allocator) -> [String]
+    with {allocator, err: alloc.AllocError}
+{
+    return Vec_String._alloc_array(allocator, 0)?
+}
+
+
+
+function find_namespace_index(namespaces: Vec_NamespaceState.Vec, name: String) -> Option_usize {
+    let n: usize = Vec_NamespaceState.len(namespaces)
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        let ns: namespace.NamespaceState = Vec_NamespaceState.at(namespaces, i)
+        if worker.string_equals(ns.name, name) {
+            return Option_usize.some(value: i)
+        }
+        i = i + 1
+    }
+    return Option_usize.none
+}
+
+
+function find_worker_index(q: JobQueue, worker_id: u64) -> Option_usize {
+    let n: usize = Vec_WorkerEntry.len(q.workers)
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        let w: worker.WorkerEntry = Vec_WorkerEntry.at(q.workers, i)
+        if w.worker_id == worker_id {
+            return Option_usize.some(value: i)
+        }
+        i = i + 1
+    }
+    return Option_usize.none
+}
+
+
+function find_leased_index(
+    leased: Vec_LeasedEntry.Vec,
+    worker_id: u64,
+    job_id: u64,
+) -> Option_usize {
+    let n: usize = Vec_LeasedEntry.len(leased)
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        let entry: job.LeasedEntry = Vec_LeasedEntry.at(leased, i)
+        if entry.worker_id == worker_id && entry.job.id == job_id {
+            return Option_usize.some(value: i)
+        }
+        i = i + 1
+    }
+    return Option_usize.none
+}
+
+
+function find_leased_index_by_job(
+    leased: Vec_LeasedEntry.Vec,
+    job_id: u64,
+) -> Option_usize {
+    let n: usize = Vec_LeasedEntry.len(leased)
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        let entry: job.LeasedEntry = Vec_LeasedEntry.at(leased, i)
+        if entry.job.id == job_id {
+            return Option_usize.some(value: i)
+        }
+        i = i + 1
+    }
+    return Option_usize.none
+}
+
+
+function find_pending_index_by_job(
+    pending: Vec_PendingEntry.Vec,
+    job_id: u64,
+) -> Option_usize {
+    let n: usize = Vec_PendingEntry.len(pending)
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        let entry: job.PendingEntry = Vec_PendingEntry.at(pending, i)
+        if entry.job.id == job_id {
+            return Option_usize.some(value: i)
+        }
+        i = i + 1
+    }
+    return Option_usize.none
+}
+
+
+
+
+
+
+
+
+function ensure_namespace(
+    q: mutable JobQueue,
+    name: String,
+    allocator: Allocator,
+) -> usize
+    with {allocator, err: alloc.AllocError}
+{
+    let existing: Option_usize = find_namespace_index(q.namespaces, name)
+    return match existing {
+        case .some(let idx) => idx
+        case .none => {
+            let fresh: namespace.NamespaceState = namespace.NamespaceState {
+                name: name,
+                active_capacity: q.cfg.active_capacity,
+                dead_letter_capacity: q.cfg.dead_letter_capacity,
+                enqueued_total: 0,
+                acquired_total: 0,
+                completed_total: 0,
+                failed_total: 0,
+                lease_expired_total: 0,
+                dead_lettered_total: 0,
+                retry_scheduled_total: 0,
+                cancelled_total: 0,
+                promoted_total: 0,
+            }
+            let new_idx: usize = Vec_NamespaceState.len(q.namespaces)
+            Vec_NamespaceState.push(mutable q.namespaces, fresh, allocator)?
+            new_idx
+        }
+    }
+}
+
+
+function count_namespace_active(q: JobQueue, name: String) -> usize {
+    let n: usize = Vec_PendingEntry.len(q.pending)
+    var count: usize = 0
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        let e: job.PendingEntry = Vec_PendingEntry.at(q.pending, i)
+        if worker.string_equals(e.namespace, name) {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    return count
+}
+
+
+function count_namespace_leased(q: JobQueue, name: String) -> usize {
+    let n: usize = Vec_LeasedEntry.len(q.leased)
+    var count: usize = 0
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        let e: job.LeasedEntry = Vec_LeasedEntry.at(q.leased, i)
+        if worker.string_equals(e.namespace, name) {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    return count
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+function audit_append(
+    q: mutable JobQueue,
+    kind: audit.AuditEventKind,
+    at_nanos: i64 where at_nanos >= 0,
+    job_id: u64,
+    worker_id: u64,
+    payload: String,
+) -> () {
+    let id: u64 = q.next_event_id
+    q.next_event_id = q.next_event_id + 1
+    let event: audit.AuditEvent = audit.AuditEvent {
+        event_id: id,
+        at_nanos: at_nanos,
+        kind: kind,
+        job_id: job_id,
+        worker_id: worker_id,
+        payload: payload,
+    }
+    if Vec_AuditEvent.len(q.audit_log) >= q.cfg.audit_retention {
+        let _ = Vec_AuditEvent.remove(mutable q.audit_log, 0)
+    }
+    let pos: usize = q.audit_log.len
+    q.audit_log.data[pos] = event
+    q.audit_log.len = q.audit_log.len + 1
+}
+
+
+
+
+
+
+
+
+function deps_all_known(q: JobQueue, deps: [u64]) -> bool {
+    let n: usize = deps.len()
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        if !is_known_id(q, deps[i]) {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+
+
+function is_known_id(q: JobQueue, id: u64) -> bool {
+    let in_pending: Option_usize = find_pending_index_by_job(q.pending, id)
+    return match in_pending {
+        case .some(_) => true
+        case .none => {
+            let in_leased: Option_usize = find_leased_index_by_job(q.leased, id)
+            return match in_leased {
+                case .some(_) => true
+                case .none => {
+                    if find_dead_index_by_job(q.dead_letter, id) {
+                        return true
+                    }
+                    return find_cancelled_index_by_job(q.cancelled, id)
+                }
+            }
+        }
+    }
+}
+
+
+function find_dead_index_by_job(dead: Vec_DeadEntry.Vec, id: u64) -> bool {
+    let n: usize = Vec_DeadEntry.len(dead)
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        let e: job.DeadEntry = Vec_DeadEntry.at(dead, i)
+        if e.job.id == id { return true }
+        i = i + 1
+    }
+    return false
+}
+
+
+function find_cancelled_index_by_job(cancelled: Vec_CancelledEntry.Vec, id: u64) -> bool {
+    let n: usize = Vec_CancelledEntry.len(cancelled)
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        let e: job.CancelledEntry = Vec_CancelledEntry.at(cancelled, i)
+        if e.job.id == id { return true }
+        i = i + 1
+    }
+    return false
+}
+
+
+
+
+
+
+
+function deps_same_namespace(q: JobQueue, deps: [u64], ns: String) -> bool {
+    let n: usize = deps.len()
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        if !dep_in_namespace(q, deps[i], ns) {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+
+
+function dep_in_namespace(q: JobQueue, id: u64, ns: String) -> bool {
+    let in_pending: Option_usize = find_pending_index_by_job(q.pending, id)
+    return match in_pending {
+        case .some(let idx) => worker.string_equals(Vec_PendingEntry.at(q.pending, idx).namespace, ns)
+        case .none => {
+            let in_leased: Option_usize = find_leased_index_by_job(q.leased, id)
+            return match in_leased {
+                case .some(let idx) => worker.string_equals(Vec_LeasedEntry.at(q.leased, idx).namespace, ns)
+                case .none => dep_in_namespace_terminal(q, id, ns)
+            }
+        }
+    }
+}
+
+
+
+function dep_in_namespace_terminal(q: JobQueue, id: u64, ns: String) -> bool {
+    let dn: usize = Vec_DeadEntry.len(q.dead_letter)
+    var i: usize = 0
+    loop
+        decreases dn - i
+    {
+        if i >= dn { break }
+        let e: job.DeadEntry = Vec_DeadEntry.at(q.dead_letter, i)
+        if e.job.id == id {
+            return worker.string_equals(e.namespace, ns)
+        }
+        i = i + 1
+    }
+    let cn: usize = Vec_CancelledEntry.len(q.cancelled)
+    var j: usize = 0
+    loop
+        decreases cn - j
+    {
+        if j >= cn { break }
+        let ce: job.CancelledEntry = Vec_CancelledEntry.at(q.cancelled, j)
+        if ce.job.id == id {
+            return worker.string_equals(ce.namespace, ns)
+        }
+        j = j + 1
+    }
+    return false
+}
+
+
+
+
+
+
+function deps_eligible(q: JobQueue, deps: [u64]) -> bool {
+    let n: usize = deps.len()
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        let dep_id: u64 = deps[i]
+        let in_pending: Option_usize = find_pending_index_by_job(q.pending, dep_id)
+        let pending_match: bool = match in_pending {
+            case .some(_) => true
+            case .none => false
+        }
+        if pending_match { return false }
+        let in_leased: Option_usize = find_leased_index_by_job(q.leased, dep_id)
+        let leased_match: bool = match in_leased {
+            case .some(_) => true
+            case .none => false
+        }
+        if leased_match { return false }
+        i = i + 1
+    }
+    return true
+}
+
+
+
+
+
+
+
+public function enqueue(
+    q: mutable JobQueue,
+    payload: String,
+    allocator: Allocator,
+) -> u64
+    with {allocator, err: queue_error.QueueError, err: alloc.AllocError}
+{
+    let no_deps: [u64] = Vec_u64._alloc_array(allocator, 0)?
+    let no_caps: [String] = Vec_String._alloc_array(allocator, 0)?
+    return enqueue_full2(
+        mutable q,
+        payload,
+        5,
+        0,
+        "default",
+        no_deps,
+        no_caps,
+        allocator,
+    )?
+}
+
+
+public function enqueue_full(
+    q: mutable JobQueue,
+    payload: String,
+    priority: u32,
+    scheduled_at_nanos: i64 where scheduled_at_nanos >= 0,
+    allocator: Allocator,
+) -> u64
+    with {allocator, err: queue_error.QueueError, err: alloc.AllocError}
+{
+    let no_deps: [u64] = Vec_u64._alloc_array(allocator, 0)?
+    let no_caps: [String] = Vec_String._alloc_array(allocator, 0)?
+    return enqueue_full2(
+        mutable q,
+        payload,
+        priority,
+        scheduled_at_nanos,
+        "default",
+        no_deps,
+        no_caps,
+        allocator,
+    )?
+}
+
+
+
+
+public function enqueue_full2(
+    q: mutable JobQueue,
+    payload: String,
+    priority: u32,
+    scheduled_at_nanos: i64 where scheduled_at_nanos >= 0,
+    ns: String,
+    depends_on: [u64],
+    required_capabilities: [String],
+    allocator: Allocator,
+) -> u64
+    with {allocator, err: queue_error.QueueError, err: alloc.AllocError}
+{
+    if priority < 1 {
+        raise queue_error.QueueError.invalid_priority
+    }
+    if priority > 10 {
+        raise queue_error.QueueError.invalid_priority
+    }
+    if !deps_all_known(q, depends_on) {
+        raise queue_error.QueueError.invalid_dependency
+    }
+    if !deps_same_namespace(q, depends_on, ns) {
+        raise queue_error.QueueError.invalid_dependency
+    }
+    let ns_idx: usize = ensure_namespace(mutable q, ns, allocator)?
+    let ns_state: namespace.NamespaceState = Vec_NamespaceState.at(q.namespaces, ns_idx)
+    if count_namespace_active(q, ns) >= ns_state.active_capacity {
+        raise queue_error.QueueError.queue_full
+    }
+    let id: u64 = q.next_id
+    let seq: u64 = q.next_seq
+    let entry: job.PendingEntry = job.PendingEntry {
+        job: job.Job {
+            id: id,
+            payload: payload,
+            attempt: 0,
+            priority: priority,
+        },
+        namespace: ns,
+        available_at_nanos: scheduled_at_nanos,
+        scheduled_at_nanos: scheduled_at_nanos,
+        seq: seq,
+        depends_on: depends_on,
+        required_capabilities: required_capabilities,
+    }
+    Vec_PendingEntry.push(mutable q.pending, entry, allocator)?
+    q.next_id = q.next_id + 1
+    q.next_seq = q.next_seq + 1
+    q.enqueued_total = q.enqueued_total + 1
+    bump_ns_enqueued(mutable q, ns_idx)
+    audit_append(
+        mutable q,
+        audit.AuditEventKind.enqueued,
+        q.last_seen_clock_nanos,
+        id,
+        0,
+        ns,
+    )
+    return id
+}
+
+
+
+
+
+
+
+function bump_ns_enqueued(q: mutable JobQueue, ns_idx: usize) -> () {
+    let ns: namespace.NamespaceState = Vec_NamespaceState.at(q.namespaces, ns_idx)
+    Vec_NamespaceState.set_at(
+        mutable q.namespaces,
+        ns_idx,
+        namespace.NamespaceState {
+            name: ns.name,
+            active_capacity: ns.active_capacity,
+            dead_letter_capacity: ns.dead_letter_capacity,
+            enqueued_total: ns.enqueued_total + 1,
+            acquired_total: ns.acquired_total,
+            completed_total: ns.completed_total,
+            failed_total: ns.failed_total,
+            lease_expired_total: ns.lease_expired_total,
+            dead_lettered_total: ns.dead_lettered_total,
+            retry_scheduled_total: ns.retry_scheduled_total,
+            cancelled_total: ns.cancelled_total,
+            promoted_total: ns.promoted_total,
+        },
+    )
+}
+
+function bump_ns_acquired(q: mutable JobQueue, ns_idx: usize) -> () {
+    let ns: namespace.NamespaceState = Vec_NamespaceState.at(q.namespaces, ns_idx)
+    Vec_NamespaceState.set_at(
+        mutable q.namespaces,
+        ns_idx,
+        namespace.NamespaceState {
+            name: ns.name,
+            active_capacity: ns.active_capacity,
+            dead_letter_capacity: ns.dead_letter_capacity,
+            enqueued_total: ns.enqueued_total,
+            acquired_total: ns.acquired_total + 1,
+            completed_total: ns.completed_total,
+            failed_total: ns.failed_total,
+            lease_expired_total: ns.lease_expired_total,
+            dead_lettered_total: ns.dead_lettered_total,
+            retry_scheduled_total: ns.retry_scheduled_total,
+            cancelled_total: ns.cancelled_total,
+            promoted_total: ns.promoted_total,
+        },
+    )
+}
+
+function bump_ns_completed(q: mutable JobQueue, ns_idx: usize) -> () {
+    let ns: namespace.NamespaceState = Vec_NamespaceState.at(q.namespaces, ns_idx)
+    Vec_NamespaceState.set_at(
+        mutable q.namespaces,
+        ns_idx,
+        namespace.NamespaceState {
+            name: ns.name,
+            active_capacity: ns.active_capacity,
+            dead_letter_capacity: ns.dead_letter_capacity,
+            enqueued_total: ns.enqueued_total,
+            acquired_total: ns.acquired_total,
+            completed_total: ns.completed_total + 1,
+            failed_total: ns.failed_total,
+            lease_expired_total: ns.lease_expired_total,
+            dead_lettered_total: ns.dead_lettered_total,
+            retry_scheduled_total: ns.retry_scheduled_total,
+            cancelled_total: ns.cancelled_total,
+            promoted_total: ns.promoted_total,
+        },
+    )
+}
+
+function bump_ns_failed(q: mutable JobQueue, ns_idx: usize) -> () {
+    let ns: namespace.NamespaceState = Vec_NamespaceState.at(q.namespaces, ns_idx)
+    Vec_NamespaceState.set_at(
+        mutable q.namespaces,
+        ns_idx,
+        namespace.NamespaceState {
+            name: ns.name,
+            active_capacity: ns.active_capacity,
+            dead_letter_capacity: ns.dead_letter_capacity,
+            enqueued_total: ns.enqueued_total,
+            acquired_total: ns.acquired_total,
+            completed_total: ns.completed_total,
+            failed_total: ns.failed_total + 1,
+            lease_expired_total: ns.lease_expired_total,
+            dead_lettered_total: ns.dead_lettered_total,
+            retry_scheduled_total: ns.retry_scheduled_total,
+            cancelled_total: ns.cancelled_total,
+            promoted_total: ns.promoted_total,
+        },
+    )
+}
+
+function bump_ns_lease_expired(q: mutable JobQueue, ns_idx: usize) -> () {
+    let ns: namespace.NamespaceState = Vec_NamespaceState.at(q.namespaces, ns_idx)
+    Vec_NamespaceState.set_at(
+        mutable q.namespaces,
+        ns_idx,
+        namespace.NamespaceState {
+            name: ns.name,
+            active_capacity: ns.active_capacity,
+            dead_letter_capacity: ns.dead_letter_capacity,
+            enqueued_total: ns.enqueued_total,
+            acquired_total: ns.acquired_total,
+            completed_total: ns.completed_total,
+            failed_total: ns.failed_total,
+            lease_expired_total: ns.lease_expired_total + 1,
+            dead_lettered_total: ns.dead_lettered_total,
+            retry_scheduled_total: ns.retry_scheduled_total,
+            cancelled_total: ns.cancelled_total,
+            promoted_total: ns.promoted_total,
+        },
+    )
+}
+
+function bump_ns_dead_lettered(q: mutable JobQueue, ns_idx: usize) -> () {
+    let ns: namespace.NamespaceState = Vec_NamespaceState.at(q.namespaces, ns_idx)
+    Vec_NamespaceState.set_at(
+        mutable q.namespaces,
+        ns_idx,
+        namespace.NamespaceState {
+            name: ns.name,
+            active_capacity: ns.active_capacity,
+            dead_letter_capacity: ns.dead_letter_capacity,
+            enqueued_total: ns.enqueued_total,
+            acquired_total: ns.acquired_total,
+            completed_total: ns.completed_total,
+            failed_total: ns.failed_total,
+            lease_expired_total: ns.lease_expired_total,
+            dead_lettered_total: ns.dead_lettered_total + 1,
+            retry_scheduled_total: ns.retry_scheduled_total,
+            cancelled_total: ns.cancelled_total,
+            promoted_total: ns.promoted_total,
+        },
+    )
+}
+
+function bump_ns_retry_scheduled(q: mutable JobQueue, ns_idx: usize) -> () {
+    let ns: namespace.NamespaceState = Vec_NamespaceState.at(q.namespaces, ns_idx)
+    Vec_NamespaceState.set_at(
+        mutable q.namespaces,
+        ns_idx,
+        namespace.NamespaceState {
+            name: ns.name,
+            active_capacity: ns.active_capacity,
+            dead_letter_capacity: ns.dead_letter_capacity,
+            enqueued_total: ns.enqueued_total,
+            acquired_total: ns.acquired_total,
+            completed_total: ns.completed_total,
+            failed_total: ns.failed_total,
+            lease_expired_total: ns.lease_expired_total,
+            dead_lettered_total: ns.dead_lettered_total,
+            retry_scheduled_total: ns.retry_scheduled_total + 1,
+            cancelled_total: ns.cancelled_total,
+            promoted_total: ns.promoted_total,
+        },
+    )
+}
+
+function bump_ns_cancelled(q: mutable JobQueue, ns_idx: usize) -> () {
+    let ns: namespace.NamespaceState = Vec_NamespaceState.at(q.namespaces, ns_idx)
+    Vec_NamespaceState.set_at(
+        mutable q.namespaces,
+        ns_idx,
+        namespace.NamespaceState {
+            name: ns.name,
+            active_capacity: ns.active_capacity,
+            dead_letter_capacity: ns.dead_letter_capacity,
+            enqueued_total: ns.enqueued_total,
+            acquired_total: ns.acquired_total,
+            completed_total: ns.completed_total,
+            failed_total: ns.failed_total,
+            lease_expired_total: ns.lease_expired_total,
+            dead_lettered_total: ns.dead_lettered_total,
+            retry_scheduled_total: ns.retry_scheduled_total,
+            cancelled_total: ns.cancelled_total + 1,
+            promoted_total: ns.promoted_total,
+        },
+    )
+}
+
+function bump_ns_promoted(q: mutable JobQueue, ns_idx: usize) -> () {
+    let ns: namespace.NamespaceState = Vec_NamespaceState.at(q.namespaces, ns_idx)
+    Vec_NamespaceState.set_at(
+        mutable q.namespaces,
+        ns_idx,
+        namespace.NamespaceState {
+            name: ns.name,
+            active_capacity: ns.active_capacity,
+            dead_letter_capacity: ns.dead_letter_capacity,
+            enqueued_total: ns.enqueued_total,
+            acquired_total: ns.acquired_total,
+            completed_total: ns.completed_total,
+            failed_total: ns.failed_total,
+            lease_expired_total: ns.lease_expired_total,
+            dead_lettered_total: ns.dead_lettered_total,
+            retry_scheduled_total: ns.retry_scheduled_total,
+            cancelled_total: ns.cancelled_total,
+            promoted_total: ns.promoted_total + 1,
+        },
+    )
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pick_acquirable_for_capabilities(
+    q: JobQueue,
+    caps: [String],
+    clk: clock.LogicalClock,
+) -> Option_usize {
+    let n: usize = Vec_PendingEntry.len(q.pending)
+    var best_idx: usize = 0
+    var best_priority: u32 = 0
+    var best_seq: u64 = 0
+    var found: bool = false
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        let entry: job.PendingEntry = Vec_PendingEntry.at(q.pending, i)
+        if entry.available_at_nanos <= clk.now_nanos {
+            if deps_eligible(q, entry.depends_on) {
+                if worker.capabilities_cover(caps, entry.required_capabilities) {
+                    let p: u32 = entry.job.priority
+                    if !found {
+                        best_idx = i
+                        best_priority = p
+                        best_seq = entry.seq
+                        found = true
+                    } else if p > best_priority {
+                        best_idx = i
+                        best_priority = p
+                        best_seq = entry.seq
+                    } else if p == best_priority && entry.seq < best_seq {
+                        best_idx = i
+                        best_seq = entry.seq
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    return if found { Option_usize.some(value: best_idx) } else { Option_usize.none }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+public function acquire(
+    q: mutable JobQueue,
+    worker_id: u64,
+    lease_duration_nanos: i64 where lease_duration_nanos > 0,
+    clk: clock.LogicalClock,
+    allocator: Allocator,
+) -> Option_AcquiredJob
+    with {allocator, err: alloc.AllocError}
+    requires clk.now_nanos <= 9_223_372_036_854_775_807 - lease_duration_nanos
+{
+    q.last_seen_clock_nanos = clk.now_nanos
+    let worker_idx_opt: Option_usize = find_worker_index(q, worker_id)
+    let caps: [String] = match worker_idx_opt {
+        case .some(let idx) => Vec_WorkerEntry.at(q.workers, idx).capabilities
+        case .none => {
+            if q.strict_workers {
+                return Option_AcquiredJob.none
+            }
+            empty_str_slice(allocator)?
+        }
+    }
+    expire_leases(mutable q, clk, allocator)?
+    let idx_opt: Option_usize = pick_acquirable_for_capabilities(q, caps, clk)
+    return match idx_opt {
+        case .none => Option_AcquiredJob.none
+        case .some(let idx) => {
+            let entry: job.PendingEntry = Vec_PendingEntry.remove(mutable q.pending, idx)
+            let acquired: job.Job = job.Job {
+                id: entry.job.id,
+                payload: entry.job.payload,
+                attempt: entry.job.attempt + 1,
+                priority: entry.job.priority,
+            }
+            let expires_at: i64 = clock.deadline(clk, lease_duration_nanos)
+            let leased_entry: job.LeasedEntry = job.LeasedEntry {
+                job: acquired,
+                namespace: entry.namespace,
+                worker_id: worker_id,
+                lease_expires_at_nanos: expires_at,
+                scheduled_at_nanos: entry.scheduled_at_nanos,
+                seq: entry.seq,
+                depends_on: entry.depends_on,
+                required_capabilities: entry.required_capabilities,
+            }
+            Vec_LeasedEntry.push(mutable q.leased, leased_entry, allocator)?
+            q.acquired_total = q.acquired_total + 1
+            let ns_idx: usize = ensure_namespace(mutable q, entry.namespace, allocator)?
+            bump_ns_acquired(mutable q, ns_idx)
+            audit_append(
+                mutable q,
+                audit.AuditEventKind.acquired,
+                clk.now_nanos,
+                entry.job.id,
+                worker_id,
+                entry.namespace,
+            )
+            Option_AcquiredJob.some(
+                value: job.AcquiredJob {
+                    job_id: entry.job.id,
+                    payload: entry.job.payload,
+                    attempt: entry.job.attempt + 1,
+                    priority: entry.job.priority,
+                    namespace: entry.namespace,
+                    lease_expires_at_nanos: expires_at,
+                },
+            )
+        }
+    }
+}
+
+
+
+
+
+
+public function heartbeat(
+    q: mutable JobQueue,
+    worker_id: u64,
+    job_id: u64,
+    extension_nanos: i64 where extension_nanos > 0,
+    clk: clock.LogicalClock,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: queue_error.QueueError, err: alloc.AllocError}
+    requires clk.now_nanos <= 9_223_372_036_854_775_807 - extension_nanos
+{
+    q.last_seen_clock_nanos = clk.now_nanos
+    let idx_opt: Option_usize = find_leased_index(q.leased, worker_id, job_id)
+    return match idx_opt {
+        case .none => raise queue_error.QueueError.not_lease_holder
+        case .some(let idx) => {
+            let entry: job.LeasedEntry = Vec_LeasedEntry.at(q.leased, idx)
+            if entry.lease_expires_at_nanos <= clk.now_nanos {
+                let removed: job.LeasedEntry = Vec_LeasedEntry.remove(mutable q.leased, idx)
+                requeue_after_expiry(mutable q, removed, clk.now_nanos, allocator)?
+                raise queue_error.QueueError.lease_expired
+            }
+            let new_deadline: i64 = clock.deadline(clk, extension_nanos)
+            Vec_LeasedEntry.set_at(
+                mutable q.leased,
+                idx,
+                job.LeasedEntry {
+                    job: entry.job,
+                    namespace: entry.namespace,
+                    worker_id: entry.worker_id,
+                    lease_expires_at_nanos: new_deadline,
+                    scheduled_at_nanos: entry.scheduled_at_nanos,
+                    seq: entry.seq,
+                    depends_on: entry.depends_on,
+                    required_capabilities: entry.required_capabilities,
+                },
+            )
+            audit_append(
+                mutable q,
+                audit.AuditEventKind.heartbeat_extended,
+                clk.now_nanos,
+                job_id,
+                worker_id,
+                entry.namespace,
+            )
+        }
+    }
+}
+
+
+
+
+public function complete(
+    q: mutable JobQueue,
+    worker_id: u64,
+    job_id: u64,
+) -> ()
+    with {err: queue_error.QueueError}
+{
+    let idx_opt: Option_usize = find_leased_index(q.leased, worker_id, job_id)
+    return match idx_opt {
+        case .none => raise queue_error.QueueError.not_lease_holder
+        case .some(let idx) => {
+            let entry: job.LeasedEntry = Vec_LeasedEntry.remove(mutable q.leased, idx)
+            q.completed_total = q.completed_total + 1
+            let ns_idx_opt: Option_usize = find_namespace_index(q.namespaces, entry.namespace)
+            return match ns_idx_opt {
+                case .some(let ns_idx) => {
+                    bump_ns_completed(mutable q, ns_idx)
+                    audit_append(
+                        mutable q,
+                        audit.AuditEventKind.completed,
+                        q.last_seen_clock_nanos,
+                        job_id,
+                        worker_id,
+                        entry.namespace,
+                    )
+                }
+                case .none => ()
+            }
+        }
+    }
+}
+
+
+public function fail(
+    q: mutable JobQueue,
+    worker_id: u64,
+    job_id: u64,
+    reason: String,
+    clk: clock.LogicalClock,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: queue_error.QueueError, err: alloc.AllocError}
+    requires clk.now_nanos <= 9_000_000_000_000_000_000
+{
+    q.last_seen_clock_nanos = clk.now_nanos
+    let idx_opt: Option_usize = find_leased_index(q.leased, worker_id, job_id)
+    return match idx_opt {
+        case .none => raise queue_error.QueueError.not_lease_holder
+        case .some(let idx) => {
+            let entry: job.LeasedEntry = Vec_LeasedEntry.remove(mutable q.leased, idx)
+            q.failed_total = q.failed_total + 1
+            let ns_idx: usize = ensure_namespace(mutable q, entry.namespace, allocator)?
+            bump_ns_failed(mutable q, ns_idx)
+            audit_append(
+                mutable q,
+                audit.AuditEventKind.failed,
+                clk.now_nanos,
+                job_id,
+                worker_id,
+                reason,
+            )
+            let next_attempt: u32 = entry.job.attempt + 1
+            if next_attempt >= q.cfg.max_attempts {
+                dead_letter.push_dead_letter(
+                    mutable q.dead_letter,
+                    q.namespaces,
+                    job.DeadEntry {
+                        job: job.Job {
+                            id: entry.job.id,
+                            payload: entry.job.payload,
+                            attempt: next_attempt,
+                            priority: entry.job.priority,
+                        },
+                        namespace: entry.namespace,
+                        final_reason: reason,
+                    },
+                    allocator,
+                )?
+                q.dead_lettered_total = q.dead_lettered_total + 1
+                bump_ns_dead_lettered(mutable q, ns_idx)
+                audit_append(
+                    mutable q,
+                    audit.AuditEventKind.dead_lettered,
+                    clk.now_nanos,
+                    entry.job.id,
+                    0,
+                    reason,
+                )
+                cascade_cancel_dependents(
+                    mutable q,
+                    entry.job.id,
+                    "parent-dead-lettered",
+                    clk.now_nanos,
+                    allocator,
+                )?
+                return
+            }
+            let delay: i64 = retry.compute_backoff(
+                q.cfg,
+                entry.job.attempt,
+                mutable q.jitter,
+            )
+            let retry_ready_at: i64 = clock.deadline(clk, delay)
+            let available_at: i64 = if retry_ready_at >= entry.scheduled_at_nanos {
+                retry_ready_at
+            } else {
+                entry.scheduled_at_nanos
+            }
+            let new_seq: u64 = q.next_seq
+            q.next_seq = q.next_seq + 1
+            let retry_entry: job.PendingEntry = job.PendingEntry {
+                job: job.Job {
+                    id: entry.job.id,
+                    payload: entry.job.payload,
+                    attempt: next_attempt,
+                    priority: entry.job.priority,
+                },
+                namespace: entry.namespace,
+                available_at_nanos: available_at,
+                scheduled_at_nanos: entry.scheduled_at_nanos,
+                seq: new_seq,
+                depends_on: entry.depends_on,
+                required_capabilities: entry.required_capabilities,
+            }
+            Vec_PendingEntry.push(mutable q.pending, retry_entry, allocator)?
+            q.retry_scheduled_total = q.retry_scheduled_total + 1
+            bump_ns_retry_scheduled(mutable q, ns_idx)
+            audit_append(
+                mutable q,
+                audit.AuditEventKind.retry_scheduled,
+                clk.now_nanos,
+                entry.job.id,
+                0,
+                entry.namespace,
+            )
+        }
+    }
+}
+
+
+
+
+
+
+
+
+
+
+function expire_leases(
+    q: mutable JobQueue,
+    clk: clock.LogicalClock,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: alloc.AllocError}
+{
+    var budget: usize = Vec_LeasedEntry.len(q.leased) + 1
+    var i: usize = 0
+    loop
+        decreases budget
+    {
+        if budget == 0 { break }
+        budget = budget - 1
+        if i >= Vec_LeasedEntry.len(q.leased) { break }
+        let entry: job.LeasedEntry = Vec_LeasedEntry.at(q.leased, i)
+        if entry.lease_expires_at_nanos <= clk.now_nanos {
+            let removed: job.LeasedEntry = Vec_LeasedEntry.remove(mutable q.leased, i)
+            requeue_after_expiry(mutable q, removed, clk.now_nanos, allocator)?
+        } else {
+            i = i + 1
+        }
+    }
+}
+
+
+
+
+function requeue_after_expiry(
+    q: mutable JobQueue,
+    entry: job.LeasedEntry,
+    at_nanos: i64 where at_nanos >= 0,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: alloc.AllocError}
+{
+    let restored: job.PendingEntry = job.PendingEntry {
+        job: job.Job {
+            id: entry.job.id,
+            payload: entry.job.payload,
+            attempt: entry.job.attempt - 1,
+            priority: entry.job.priority,
+        },
+        namespace: entry.namespace,
+        available_at_nanos: entry.scheduled_at_nanos,
+        scheduled_at_nanos: entry.scheduled_at_nanos,
+        seq: entry.seq,
+        depends_on: entry.depends_on,
+        required_capabilities: entry.required_capabilities,
+    }
+    Vec_PendingEntry.push(mutable q.pending, restored, allocator)?
+    q.lease_expired_total = q.lease_expired_total + 1
+    let ns_idx: usize = ensure_namespace(mutable q, entry.namespace, allocator)?
+    bump_ns_lease_expired(mutable q, ns_idx)
+    audit_append(
+        mutable q,
+        audit.AuditEventKind.lease_expired,
+        at_nanos,
+        entry.job.id,
+        entry.worker_id,
+        entry.namespace,
+    )
+}
+
+public function cancel(
+    q: mutable JobQueue,
+    job_id: u64,
+    reason: String,
+    clk: clock.LogicalClock,
+    allocator: Allocator,
+) -> usize
+    with {allocator, err: alloc.AllocError}
+{
+    q.last_seen_clock_nanos = clk.now_nanos
+    let at: i64 = clk.now_nanos
+    let pending_idx: Option_usize = find_pending_index_by_job(q.pending, job_id)
+    let removed_from_pending: bool = match pending_idx {
+        case .some(let idx) => {
+            let entry: job.PendingEntry = Vec_PendingEntry.remove(mutable q.pending, idx)
+            push_cancelled_from_pending(mutable q, entry, reason, at, allocator)?
+            true
+        }
+        case .none => false
+    }
+    var removed: bool = removed_from_pending
+    if !removed_from_pending {
+        let leased_idx: Option_usize = find_leased_index_by_job(q.leased, job_id)
+        let removed_from_leased: bool = match leased_idx {
+            case .some(let idx) => {
+                let entry: job.LeasedEntry = Vec_LeasedEntry.remove(mutable q.leased, idx)
+                push_cancelled_from_leased(mutable q, entry, reason, at, allocator)?
+                true
+            }
+            case .none => false
+        }
+        removed = removed_from_leased
+    }
+    if !removed { return 0 }
+    var count: usize = 1
+    let descendants: usize = cascade_cancel_dependents(mutable q, job_id, reason, at, allocator)?
+    count = count + descendants
+    return count
+}
+
+
+function push_cancelled_from_pending(
+    q: mutable JobQueue,
+    entry: job.PendingEntry,
+    reason: String,
+    at_nanos: i64 where at_nanos >= 0,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: alloc.AllocError}
+{
+    let dead: job.CancelledEntry = job.CancelledEntry {
+        job: entry.job,
+        namespace: entry.namespace,
+        cancellation_reason: reason,
+        at_nanos: at_nanos,
+    }
+    Vec_CancelledEntry.push(mutable q.cancelled, dead, allocator)?
+    q.cancelled_total = q.cancelled_total + 1
+    let ns_idx: usize = ensure_namespace(mutable q, entry.namespace, allocator)?
+    bump_ns_cancelled(mutable q, ns_idx)
+    audit_append(
+        mutable q,
+        audit.AuditEventKind.cancelled,
+        at_nanos,
+        entry.job.id,
+        0,
+        reason,
+    )
+}
+
+
+
+
+function push_cancelled_from_leased(
+    q: mutable JobQueue,
+    entry: job.LeasedEntry,
+    reason: String,
+    at_nanos: i64 where at_nanos >= 0,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: alloc.AllocError}
+{
+    let dead: job.CancelledEntry = job.CancelledEntry {
+        job: entry.job,
+        namespace: entry.namespace,
+        cancellation_reason: reason,
+        at_nanos: at_nanos,
+    }
+    Vec_CancelledEntry.push(mutable q.cancelled, dead, allocator)?
+    q.cancelled_total = q.cancelled_total + 1
+    let ns_idx: usize = ensure_namespace(mutable q, entry.namespace, allocator)?
+    bump_ns_cancelled(mutable q, ns_idx)
+    audit_append(
+        mutable q,
+        audit.AuditEventKind.cancelled,
+        at_nanos,
+        entry.job.id,
+        entry.worker_id,
+        reason,
+    )
+}
+
+
+
+
+
+function cascade_cancel_dependents(
+    q: mutable JobQueue,
+    root_id: u64,
+    reason: String,
+    at_nanos: i64 where at_nanos >= 0,
+    allocator: Allocator,
+) -> usize
+    with {allocator, err: alloc.AllocError}
+{
+    let cascade_payload: String = "cascade"
+    var total: usize = 0
+    var budget: usize = Vec_PendingEntry.len(q.pending) + Vec_LeasedEntry.len(q.leased) + 1
+    loop
+        decreases budget
+    {
+        if budget == 0 { break }
+        budget = budget - 1
+        let cancelled_one: bool = cascade_one_pass(
+            mutable q,
+            cascade_payload,
+            at_nanos,
+            allocator,
+        )?
+        if cancelled_one {
+            total = total + 1
+        } else {
+            break
+        }
+    }
+    let _ = root_id
+    let _ = reason
+    return total
+}
+
+
+
+
+function cascade_one_pass(
+    q: mutable JobQueue,
+    reason: String,
+    at_nanos: i64 where at_nanos >= 0,
+    allocator: Allocator,
+) -> bool
+    with {allocator, err: alloc.AllocError}
+{
+    let pn: usize = Vec_PendingEntry.len(q.pending)
+    var i: usize = 0
+    loop
+        decreases pn - i
+    {
+        if i >= pn { break }
+        let entry: job.PendingEntry = Vec_PendingEntry.at(q.pending, i)
+        if any_dep_cancelled(q, entry.depends_on) {
+            let removed: job.PendingEntry = Vec_PendingEntry.remove(mutable q.pending, i)
+            push_cancelled_from_pending(mutable q, removed, reason, at_nanos, allocator)?
+            return true
+        }
+        i = i + 1
+    }
+    let ln: usize = Vec_LeasedEntry.len(q.leased)
+    var j: usize = 0
+    loop
+        decreases ln - j
+    {
+        if j >= ln { break }
+        let entry: job.LeasedEntry = Vec_LeasedEntry.at(q.leased, j)
+        if any_dep_cancelled(q, entry.depends_on) {
+            let removed: job.LeasedEntry = Vec_LeasedEntry.remove(mutable q.leased, j)
+            push_cancelled_from_leased(mutable q, removed, reason, at_nanos, allocator)?
+            return true
+        }
+        j = j + 1
+    }
+    return false
+}
+
+
+
+
+function any_dep_cancelled(q: JobQueue, deps: [u64]) -> bool {
+    let n: usize = deps.len()
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        if find_cancelled_index_by_job(q.cancelled, deps[i]) {
+            return true
+        }
+        if find_dead_index_by_job(q.dead_letter, deps[i]) {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+
+
+
+
+
+
+
+
+
+
+public function promote(
+    q: mutable JobQueue,
+    job_id: u64,
+    new_priority: u32,
+    clk: clock.LogicalClock,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: queue_error.QueueError, err: alloc.AllocError}
+{
+    q.last_seen_clock_nanos = clk.now_nanos
+    if new_priority < 1 {
+        raise queue_error.QueueError.promotion_rejected
+    }
+    if new_priority > 10 {
+        raise queue_error.QueueError.promotion_rejected
+    }
+    let idx_opt: Option_usize = find_pending_index_by_job(q.pending, job_id)
+    return match idx_opt {
+        case .none => raise queue_error.QueueError.promotion_rejected
+        case .some(let idx) => {
+            let entry: job.PendingEntry = Vec_PendingEntry.at(q.pending, idx)
+            if new_priority <= entry.job.priority {
+                raise queue_error.QueueError.promotion_rejected
+            }
+            Vec_PendingEntry.set_at(
+                mutable q.pending,
+                idx,
+                job.PendingEntry {
+                    job: job.Job {
+                        id: entry.job.id,
+                        payload: entry.job.payload,
+                        attempt: entry.job.attempt,
+                        priority: new_priority,
+                    },
+                    namespace: entry.namespace,
+                    available_at_nanos: entry.available_at_nanos,
+                    scheduled_at_nanos: entry.scheduled_at_nanos,
+                    seq: entry.seq,
+                    depends_on: entry.depends_on,
+                    required_capabilities: entry.required_capabilities,
+                },
+            )
+            q.promoted_total = q.promoted_total + 1
+            let ns_idx: usize = ensure_namespace(mutable q, entry.namespace, allocator)?
+            bump_ns_promoted(mutable q, ns_idx)
+            audit_append(
+                mutable q,
+                audit.AuditEventKind.promoted,
+                clk.now_nanos,
+                entry.job.id,
+                0,
+                entry.namespace,
+            )
+        }
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+public function register_worker(
+    q: mutable JobQueue,
+    worker_id: u64,
+    capabilities: [String],
+    clk: clock.LogicalClock,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: alloc.AllocError}
+{
+    q.last_seen_clock_nanos = clk.now_nanos
+    q.strict_workers = true
+    let existing: Option_usize = find_worker_index(q, worker_id)
+    return match existing {
+        case .some(let idx) => {
+            Vec_WorkerEntry.set_at(
+                mutable q.workers,
+                idx,
+                worker.WorkerEntry {
+                    worker_id: worker_id,
+                    capabilities: capabilities,
+                },
+            )
+            audit_append(
+                mutable q,
+                audit.AuditEventKind.worker_registered,
+                clk.now_nanos,
+                0,
+                worker_id,
+                "re-register",
+            )
+        }
+        case .none => {
+            Vec_WorkerEntry.push(
+                mutable q.workers,
+                worker.WorkerEntry {
+                    worker_id: worker_id,
+                    capabilities: capabilities,
+                },
+                allocator,
+            )?
+            audit_append(
+                mutable q,
+                audit.AuditEventKind.worker_registered,
+                clk.now_nanos,
+                0,
+                worker_id,
+                "register",
+            )
+        }
+    }
+}
+
+
+
+
+
+public function deregister_worker(
+    q: mutable JobQueue,
+    worker_id: u64,
+    clk: clock.LogicalClock,
+    allocator: Allocator,
+) -> usize
+    with {allocator, err: alloc.AllocError}
+{
+    q.last_seen_clock_nanos = clk.now_nanos
+    var force_expired: usize = 0
+    var budget: usize = Vec_LeasedEntry.len(q.leased) + 1
+    var i: usize = 0
+    loop
+        decreases budget
+    {
+        if budget == 0 { break }
+        budget = budget - 1
+        if i >= Vec_LeasedEntry.len(q.leased) { break }
+        let entry: job.LeasedEntry = Vec_LeasedEntry.at(q.leased, i)
+        if entry.worker_id == worker_id {
+            let removed: job.LeasedEntry = Vec_LeasedEntry.remove(mutable q.leased, i)
+            requeue_after_expiry(mutable q, removed, clk.now_nanos, allocator)?
+            force_expired = force_expired + 1
+        } else {
+            i = i + 1
+        }
+    }
+    let existing: Option_usize = find_worker_index(q, worker_id)
+    let _was_known: bool = match existing {
+        case .some(let idx) => {
+            let _ = Vec_WorkerEntry.remove(mutable q.workers, idx)
+            true
+        }
+        case .none => false
+    }
+    audit_append(
+        mutable q,
+        audit.AuditEventKind.worker_deregistered,
+        clk.now_nanos,
+        0,
+        worker_id,
+        "deregister",
+    )
+    return force_expired
+}
+
+
+
+public function is_worker_registered(q: JobQueue, worker_id: u64) -> bool {
+    let idx_opt: Option_usize = find_worker_index(q, worker_id)
+    return match idx_opt {
+        case .some(_) => true
+        case .none => false
+    }
+}
+
+
+
+
+
+public function verify_worker(q: JobQueue, worker_id: u64) -> ()
+    with {err: queue_error.QueueError}
+{
+    if !q.strict_workers { return }
+    let idx_opt: Option_usize = find_worker_index(q, worker_id)
+    return match idx_opt {
+        case .some(_) => ()
+        case .none => raise queue_error.QueueError.unknown_worker
+    }
+}
+
+
+public function list_workers(
+    q: JobQueue,
+    allocator: Allocator,
+) -> [worker.WorkerView]
+    with {allocator, err: alloc.AllocError}
+{
+    let n: usize = Vec_WorkerEntry.len(q.workers)
+    let buf: [worker.WorkerView] = Vec_WorkerView._alloc_array(allocator, n)?
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        let w: worker.WorkerEntry = Vec_WorkerEntry.at(q.workers, i)
+        buf[i] = worker.WorkerView {
+            worker_id: w.worker_id,
+            capabilities: w.capabilities,
+        }
+        i = i + 1
+    }
+    return buf
+}
+
+
+
+
+
+
+
+
+
+public function register_namespace(
+    q: mutable JobQueue,
+    name: String,
+    active_capacity: usize where active_capacity > 0,
+    dead_letter_capacity: usize where dead_letter_capacity > 0,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: alloc.AllocError}
+{
+    let existing: Option_usize = find_namespace_index(q.namespaces, name)
+    return match existing {
+        case .some(let idx) => {
+            let ns: namespace.NamespaceState = Vec_NamespaceState.at(q.namespaces, idx)
+            Vec_NamespaceState.set_at(
+                mutable q.namespaces,
+                idx,
+                namespace.NamespaceState {
+                    name: ns.name,
+                    active_capacity: active_capacity,
+                    dead_letter_capacity: dead_letter_capacity,
+                    enqueued_total: ns.enqueued_total,
+                    acquired_total: ns.acquired_total,
+                    completed_total: ns.completed_total,
+                    failed_total: ns.failed_total,
+                    lease_expired_total: ns.lease_expired_total,
+                    dead_lettered_total: ns.dead_lettered_total,
+                    retry_scheduled_total: ns.retry_scheduled_total,
+                    cancelled_total: ns.cancelled_total,
+                    promoted_total: ns.promoted_total,
+                },
+            )
+        }
+        case .none => {
+            let fresh: namespace.NamespaceState = namespace.NamespaceState {
+                name: name,
+                active_capacity: active_capacity,
+                dead_letter_capacity: dead_letter_capacity,
+                enqueued_total: 0,
+                acquired_total: 0,
+                completed_total: 0,
+                failed_total: 0,
+                lease_expired_total: 0,
+                dead_lettered_total: 0,
+                retry_scheduled_total: 0,
+                cancelled_total: 0,
+                promoted_total: 0,
+            }
+            Vec_NamespaceState.push(mutable q.namespaces, fresh, allocator)?
+        }
+    }
+}
+
+
+public function namespace_count(q: JobQueue) -> usize {
+    return Vec_NamespaceState.len(q.namespaces)
+}
+
+
+public function namespace_name_at(
+    q: JobQueue,
+    i: usize where i < namespace_count(q),
+) -> String {
+    return Vec_NamespaceState.at(q.namespaces, i).name
+}
+
+
+
+
+
+
+
+public function audit_recent(
+    q: JobQueue,
+    limit: usize,
+    allocator: Allocator,
+) -> [audit.AuditEvent]
+    with {allocator, err: alloc.AllocError}
+{
+    let n: usize = Vec_AuditEvent.len(q.audit_log)
+    let take_n: usize = if limit > n { n } else { limit }
+    let buf: [audit.AuditEvent] = Vec_AuditEvent._alloc_array(allocator, take_n)?
+    var i: usize = 0
+    let start: usize = n - take_n
+    loop
+        decreases take_n - i
+    {
+        if i >= take_n { break }
+        buf[i] = Vec_AuditEvent.at(q.audit_log, start + i)
+        i = i + 1
+    }
+    return buf
+}
+
+
+
+
+public function audit_since(
+    q: JobQueue,
+    after_event_id: u64,
+    allocator: Allocator,
+) -> [audit.AuditEvent]
+    with {allocator, err: queue_error.QueueError, err: alloc.AllocError}
+{
+    let n: usize = Vec_AuditEvent.len(q.audit_log)
+    if n > 0 {
+        let oldest: u64 = Vec_AuditEvent.at(q.audit_log, 0).event_id
+        if oldest > 0 && after_event_id + 1 < oldest {
+            raise queue_error.QueueError.audit_event_dropped
+        }
+    }
+    var count: usize = 0
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        if Vec_AuditEvent.at(q.audit_log, i).event_id > after_event_id {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    let buf: [audit.AuditEvent] = Vec_AuditEvent._alloc_array(allocator, count)?
+    var j: usize = 0
+    var k: usize = 0
+    loop
+        decreases n - j
+    {
+        if j >= n { break }
+        let e: audit.AuditEvent = Vec_AuditEvent.at(q.audit_log, j)
+        if e.event_id > after_event_id {
+            buf[k] = e
+            k = k + 1
+        }
+        j = j + 1
+    }
+    return buf
+}
+
+
+
+
+
+
+
+
+public function metrics_snapshot(q: JobQueue) -> metrics.MetricsSnapshot {
+    return metrics.MetricsSnapshot {
+        enqueued_total: q.enqueued_total,
+        acquired_total: q.acquired_total,
+        completed_total: q.completed_total,
+        failed_total: q.failed_total,
+        lease_expired_total: q.lease_expired_total,
+        dead_lettered_total: q.dead_lettered_total,
+        retry_scheduled_total: q.retry_scheduled_total,
+        cancelled_total: q.cancelled_total,
+        promoted_total: q.promoted_total,
+        active_count: Vec_PendingEntry.len(q.pending),
+        leased_count: Vec_LeasedEntry.len(q.leased),
+        dead_letter_count: Vec_DeadEntry.len(q.dead_letter),
+        cancelled_count: Vec_CancelledEntry.len(q.cancelled),
+        audit_event_count: Vec_AuditEvent.len(q.audit_log),
+    }
+}
+
+
+
+
+
+public function namespace_metrics_count(q: JobQueue) -> usize {
+    return Vec_NamespaceState.len(q.namespaces)
+}
+
+
+
+
+public function namespace_metrics_at(
+    q: JobQueue,
+    i: usize where i < namespace_metrics_count(q),
+) -> metrics.NamespaceMetrics {
+    let ns: namespace.NamespaceState = Vec_NamespaceState.at(q.namespaces, i)
+    return metrics.NamespaceMetrics {
+        name: ns.name,
+        enqueued_total: ns.enqueued_total,
+        acquired_total: ns.acquired_total,
+        completed_total: ns.completed_total,
+        failed_total: ns.failed_total,
+        lease_expired_total: ns.lease_expired_total,
+        dead_lettered_total: ns.dead_lettered_total,
+        retry_scheduled_total: ns.retry_scheduled_total,
+        cancelled_total: ns.cancelled_total,
+        promoted_total: ns.promoted_total,
+        active_count: count_namespace_active(q, ns.name),
+        leased_count: count_namespace_leased(q, ns.name),
+        dead_letter_count: dead_letter.count_namespace_dead(q.dead_letter, ns.name),
+    }
+}

@@ -1,0 +1,33 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+public type NamespaceState {
+    name: String,
+    active_capacity: usize where active_capacity > 0,
+    dead_letter_capacity: usize where dead_letter_capacity > 0,
+    enqueued_total: u64,
+    acquired_total: u64,
+    completed_total: u64,
+    failed_total: u64,
+    lease_expired_total: u64,
+    dead_lettered_total: u64,
+    retry_scheduled_total: u64,
+    cancelled_total: u64,
+    promoted_total: u64,
+}

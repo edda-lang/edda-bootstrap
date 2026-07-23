@@ -1,0 +1,227 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import std.mem.alloc
+
+
+
+
+function strings_equal_inline(a: String, b: String) -> bool
+    with {divergence}
+{
+    let ab = a.bytes()
+    let bb = b.bytes()
+    if ab.len() != bb.len() { return false }
+    var i: usize = 0
+    loop {
+        if i >= ab.len() { break }
+        if ab[i] != bb[i] { return false }
+        i = i + 1
+    }
+    return true
+}
+
+
+
+
+
+public type Value {
+    case v_nil
+    case v_bool(value: bool)
+    case v_number(value: f64)
+    case v_string(value: String)
+}
+
+
+
+public function value_nil() -> Value {
+    return Value.v_nil
+}
+
+
+
+public function value_bool(b: bool) -> Value {
+    return Value.v_bool(value: b)
+}
+
+
+
+public function value_number(n: f64) -> Value {
+    return Value.v_number(value: n)
+}
+
+
+
+public function value_string(s: take String) -> Value {
+    return Value.v_string(value: s)
+}
+
+
+
+
+
+public function is_truthy(v: Value) -> bool {
+    return match v {
+        case .v_nil           => false
+        case .v_bool(let b)   => b
+        case .v_number(_)     => true
+        case .v_string(_)     => true
+    }
+}
+
+
+
+
+
+public function is_falsey(v: Value) -> bool {
+    return match v {
+        case .v_nil           => true
+        case .v_bool(let b)   => !b
+        case .v_number(_)     => false
+        case .v_string(_)     => false
+    }
+}
+
+
+
+public function is_number(v: Value) -> bool {
+    return match v {
+        case .v_number(_) => true
+        case _            => false
+    }
+}
+
+
+
+public function is_string(v: Value) -> bool {
+    return match v {
+        case .v_string(_) => true
+        case _            => false
+    }
+}
+
+
+
+public function is_nil(v: Value) -> bool {
+    return match v {
+        case .v_nil => true
+        case _      => false
+    }
+}
+
+
+
+
+
+
+
+
+public function values_equal(a: Value, b: Value) -> bool
+    with {divergence}
+{
+    return match a {
+        case .v_nil => match b {
+            case .v_nil => true
+            case _      => false
+        }
+        case .v_bool(let ab) => match b {
+            case .v_bool(let bb) => ab == bb
+            case _               => false
+        }
+        case .v_number(let an) => match b {
+            case .v_number(let bn) => an == bn
+            case _                 => false
+        }
+        case .v_string(let asv) => match b {
+            case .v_string(let bsv) => strings_equal_inline(asv, bsv)
+            case _                  => false
+        }
+    }
+}
+
+
+
+
+
+
+public function value_type_name(v: Value) -> String {
+    return match v {
+        case .v_nil       => "nil"
+        case .v_bool(_)   => "bool"
+        case .v_number(_) => "number"
+        case .v_string(_) => "string"
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+public function value_to_string(v: Value, allocator: Allocator) -> String
+    with {allocator, err: alloc.AllocError}
+{
+    return match v {
+        case .v_nil           => "nil"
+        case .v_bool(let b)   => render_bool(b)
+        case .v_number(let n) => render_number(n, allocator)?
+        case .v_string(let s) => s
+    }
+}
+
+
+
+function render_bool(b: bool) -> String {
+    if b {
+        return "true"
+    }
+    return "false"
+}
+
+
+
+
+
+
+function render_number(n: f64, allocator: Allocator) -> String
+    with {allocator, err: alloc.AllocError}
+{
+    return format_f64_extern(n, allocator)?
+}
+
+
+
+
+
+
+function format_f64_extern(n: f64, allocator: Allocator) -> String
+    with {allocator, err: alloc.AllocError}
+    extern "__edda_format_f64"

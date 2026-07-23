@@ -1,0 +1,414 @@
+
+
+
+
+
+
+
+
+import std.mem.alloc
+import local.assert.assert
+import local.clock.clock
+import local.queue.queue.queue
+import local.queue.snapshot.snapshot
+import local.queue.error as queue_error
+import local.test.support as test_support
+
+
+
+
+
+
+
+public function s31(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let low_id: u64 = queue.enqueue_full(mutable q, "low", 2, 0, allocator)?
+    let high_id: u64 = queue.enqueue_full(mutable q, "high", 8, 0, allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let outcome = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    return match outcome {
+        case .none => assert.assert_true(false, "s31: acquire should return high-priority job")?
+        case .some(let a) => {
+            assert.assert_eq_u64(a.job_id, high_id, "s31: high-priority should win")?
+            assert.assert_eq_u32(a.priority, 8, "s31: acquired priority should be 8")?
+            let _ = low_id
+        }
+    }
+}
+
+
+
+public function s32(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id_a: u64 = queue.enqueue_full(mutable q, "a", 5, 0, allocator)?
+    let id_b: u64 = queue.enqueue_full(mutable q, "b", 5, 0, allocator)?
+    let id_c: u64 = queue.enqueue_full(mutable q, "c", 5, 0, allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let o1 = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    let o2 = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    let o3 = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    let got_a: u64 = match o1 {
+        case .some(let a) => a.job_id
+        case .none => 0
+    }
+    let got_b: u64 = match o2 {
+        case .some(let a) => a.job_id
+        case .none => 0
+    }
+    let got_c: u64 = match o3 {
+        case .some(let a) => a.job_id
+        case .none => 0
+    }
+    assert.assert_eq_u64(got_a, id_a, "s32: first acquire")?
+    assert.assert_eq_u64(got_b, id_b, "s32: second acquire")?
+    assert.assert_eq_u64(got_c, id_c, "s32: third acquire")?
+}
+
+
+public function s33(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    var low_raised: bool = false
+    handle err: queue_error.QueueError -> { low_raised = true } {
+        let _ = queue.enqueue_full(mutable q, "x", 0, 0, allocator)?
+    }
+    assert.assert_true(low_raised, "s33: priority 0 should raise invalid_priority")?
+
+    var high_raised: bool = false
+    handle err: queue_error.QueueError -> { high_raised = true } {
+        let _ = queue.enqueue_full(mutable q, "x", 11, 0, allocator)?
+    }
+    assert.assert_true(high_raised, "s33: priority 11 should raise invalid_priority")?
+
+    assert.assert_eq_usize(queue.active_len(q), 0, "s33: no jobs should have been admitted")?
+}
+
+
+
+public function s34(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue_full(mutable q, "x", 7, 0, allocator)?
+    var clk: clock.LogicalClock = clock.new()
+    let first = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    return match first {
+        case .none => assert.assert_true(false, "s34: first acquire must succeed")?
+        case .some(let a1) => {
+            assert.assert_eq_u32(a1.priority, 7, "s34: first acquire priority")?
+            queue.fail(mutable q, 1, id, "transient", clk, allocator)?
+            clock.advance(mutable clk, 1_000_000_000)
+            let retried = queue.acquire(mutable q, 2, 1_000_000_000, clk, allocator)?
+            return match retried {
+                case .none => assert.assert_true(false, "s34: retry should be available after backoff")?
+                case .some(let a2) => assert.assert_eq_u32(a2.priority, 7, "s34: priority survives retry")?
+            }
+        }
+    }
+}
+
+
+public function s35(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let _ = queue.enqueue_full(mutable q, "x", 9, 0, allocator)?
+    let snap: snapshot.Snapshot = snapshot.take_snapshot(q, allocator)?
+    var restored: queue.JobQueue = snapshot.restore(snap, allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let outcome = queue.acquire(mutable restored, 1, 1_000_000_000, clk, allocator)?
+    return match outcome {
+        case .none => assert.assert_true(false, "s35: post-restore acquire should succeed")?
+        case .some(let a) => assert.assert_eq_u32(a.priority, 9, "s35: priority survives restart")?
+    }
+}
+
+
+
+
+
+
+
+public function s36(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let _ = queue.enqueue_full(mutable q, "future", 5, 1_000_000_000, allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let outcome = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    assert.assert_true(
+        match outcome {
+            case .none => true
+            case .some(_) => false
+        },
+        "s36: scheduled-in-future job must not be acquirable",
+    )?
+    assert.assert_eq_usize(queue.active_len(q), 1, "s36: scheduled job still occupies capacity")?
+}
+
+
+
+public function s37(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue_full(mutable q, "future", 5, 1_000_000_000, allocator)?
+    var clk: clock.LogicalClock = clock.new()
+    clock.advance(mutable clk, 1_500_000_000)
+    let outcome = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    return match outcome {
+        case .none => assert.assert_true(false, "s37: post-schedule acquire should succeed")?
+        case .some(let a) => assert.assert_eq_u64(a.job_id, id, "s37: should acquire the scheduled job")?
+    }
+}
+
+
+
+
+public function s38(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.tight_cfg(2, 5), 1, allocator)?
+    let _ = queue.enqueue_full(mutable q, "a", 5, 5_000_000_000, allocator)?
+    let _ = queue.enqueue_full(mutable q, "b", 5, 5_000_000_000, allocator)?
+    var raised: bool = false
+    handle err: queue_error.QueueError -> { raised = true } {
+        let _ = queue.enqueue_full(mutable q, "c", 5, 5_000_000_000, allocator)?
+    }
+    assert.assert_true(raised, "s38: third enqueue should raise queue_full")?
+    assert.assert_eq_usize(queue.active_len(q), 2, "s38: capacity-occupying count is 2")?
+}
+
+
+
+public function s39(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id_a: u64 = queue.enqueue_full(mutable q, "a", 5, 1_000_000_000, allocator)?
+    let id_b: u64 = queue.enqueue_full(mutable q, "b", 5, 1_000_000_000, allocator)?
+    var clk: clock.LogicalClock = clock.new()
+    clock.advance(mutable clk, 2_000_000_000)
+    let o1 = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    let o2 = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    let got_a: u64 = match o1 {
+        case .some(let a) => a.job_id
+        case .none => 0
+    }
+    let got_b: u64 = match o2 {
+        case .some(let a) => a.job_id
+        case .none => 0
+    }
+    assert.assert_eq_u64(got_a, id_a, "s39: scheduled FIFO first")?
+    assert.assert_eq_u64(got_b, id_b, "s39: scheduled FIFO second")?
+}
+
+
+
+public function s40(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue_full(mutable q, "future", 5, 1_000_000_000, allocator)?
+    let snap: snapshot.Snapshot = snapshot.take_snapshot(q, allocator)?
+    var restored: queue.JobQueue = snapshot.restore(snap, allocator)?
+    var clk: clock.LogicalClock = clock.new()
+    
+    let early = queue.acquire(mutable restored, 1, 1_000_000_000, clk, allocator)?
+    assert.assert_true(
+        match early {
+            case .none => true
+            case .some(_) => false
+        },
+        "s40: post-restore pre-schedule acquire should be .none",
+    )?
+    
+    clock.advance(mutable clk, 1_500_000_000)
+    let late = queue.acquire(mutable restored, 1, 1_000_000_000, clk, allocator)?
+    return match late {
+        case .none => assert.assert_true(false, "s40: post-restore post-schedule acquire should succeed")?
+        case .some(let a) => assert.assert_eq_u64(a.job_id, id, "s40: same job survives restart")?
+    }
+}
+
+
+
+
+
+
+public function s41(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let _ = test_support.enqueue_n(mutable q, 5, allocator)?
+    let m = queue.metrics_snapshot(q)
+    assert.assert_eq_u64(m.enqueued_total, 5, "s41: five enqueues, counter = 5")?
+}
+
+
+
+public function s42(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError}
+{
+    var q: queue.JobQueue = queue.new(test_support.tight_cfg(2, 5), 1, allocator)?
+    handle err: queue_error.QueueError -> { } {
+        let _ = test_support.enqueue_n(mutable q, 5, allocator)?
+    }
+    let m_after_full = queue.metrics_snapshot(q)
+    assert.assert_eq_u64(m_after_full.enqueued_total, 2, "s42: queue_full does not bump counter")?
+
+    handle err: queue_error.QueueError -> { } {
+        let _ = queue.enqueue_full(mutable q, "bad", 0, 0, allocator)?
+    }
+    let m_after_invalid = queue.metrics_snapshot(q)
+    assert.assert_eq_u64(m_after_invalid.enqueued_total, 2, "s42: invalid_priority does not bump counter")?
+}
+
+
+
+public function s43(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let _ = queue.enqueue(mutable q, "x", allocator)?
+    var clk: clock.LogicalClock = clock.new()
+    let _ = queue.acquire(mutable q, 1, 1_000_000, clk, allocator)?
+    clock.advance(mutable clk, 2_000_000)
+    
+    let _ = queue.acquire(mutable q, 2, 1_000_000_000, clk, allocator)?
+    let m = queue.metrics_snapshot(q)
+    assert.assert_eq_u64(m.lease_expired_total, 1, "s43: lease expiry counter")?
+}
+
+
+
+public function s44(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let _ = test_support.enqueue_n(mutable q, 3, allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let acquired = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    let id: u64 = match acquired {
+        case .some(let a) => a.job_id
+        case .none => 0
+    }
+    queue.complete(mutable q, 1, id)?
+    let pre = queue.metrics_snapshot(q)
+    let snap: snapshot.Snapshot = snapshot.take_snapshot(q, allocator)?
+    let restored: queue.JobQueue = snapshot.restore(snap, allocator)?
+    let post = queue.metrics_snapshot(restored)
+    assert.assert_eq_u64(post.enqueued_total, pre.enqueued_total, "s44: enqueued_total survives")?
+    assert.assert_eq_u64(post.acquired_total, pre.acquired_total, "s44: acquired_total survives")?
+    assert.assert_eq_u64(post.completed_total, pre.completed_total, "s44: completed_total survives")?
+    assert.assert_eq_u64(post.failed_total, pre.failed_total, "s44: failed_total survives")?
+    assert.assert_eq_u64(post.lease_expired_total, pre.lease_expired_total, "s44: lease_expired_total survives")?
+    assert.assert_eq_u64(post.dead_lettered_total, pre.dead_lettered_total, "s44: dead_lettered_total survives")?
+    assert.assert_eq_u64(post.retry_scheduled_total, pre.retry_scheduled_total, "s44: retry_scheduled_total survives")?
+}
+
+
+
+
+public function s45(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let _ = test_support.enqueue_n(mutable q, 5, allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let limit: usize = 5
+    var i: usize = 0
+    loop
+        decreases limit - i
+    {
+        if i >= limit { break }
+        let acquired = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+        let snap_after_acquire = queue.metrics_snapshot(q)
+        assert.assert_true(
+            snap_after_acquire.completed_total <= snap_after_acquire.acquired_total,
+            "s45: completed <= acquired after acquire",
+        )?
+        let id: u64 = match acquired {
+            case .some(let a) => a.job_id
+            case .none => 0
+        }
+        if id != 0 {
+            queue.complete(mutable q, 1, id)?
+            let snap_after_complete = queue.metrics_snapshot(q)
+            assert.assert_true(
+                snap_after_complete.completed_total <= snap_after_complete.acquired_total,
+                "s45: completed <= acquired after complete",
+            )?
+        }
+        i = i + 1
+    }
+}
+
+
+
+
+
+
+
+
+public function s46(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let low_id: u64 = queue.enqueue_full(mutable q, "low-now", 2, 0, allocator)?
+    let _ = queue.enqueue_full(mutable q, "high-future", 10, 1_000_000_000, allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let outcome = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    return match outcome {
+        case .none => assert.assert_true(false, "s46: acquire should return the available low-priority job")?
+        case .some(let a) => {
+            assert.assert_eq_u64(a.job_id, low_id, "s46: low-priority available wins over high-priority future")?
+            assert.assert_eq_u32(a.priority, 2, "s46: acquired priority is 2")?
+        }
+    }
+}
+
+
+
+
+
+
+public function s47(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue_full(mutable q, "scheduled-fail", 5, 1_000_000_000, allocator)?
+    var clk: clock.LogicalClock = clock.new()
+    clock.advance(mutable clk, 1_500_000_000)
+    let acquired = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    return match acquired {
+        case .none => assert.assert_true(false, "s47: post-schedule acquire should succeed")?
+        case .some(let a) => {
+            assert.assert_eq_u64(a.job_id, id, "s47: acquired the scheduled job")?
+            queue.fail(mutable q, 1, id, "transient", clk, allocator)?
+            
+            
+            clock.advance(mutable clk, 50_000_000)
+            let early = queue.acquire(mutable q, 2, 1_000_000_000, clk, allocator)?
+            assert.assert_true(
+                match early {
+                    case .none => true
+                    case .some(_) => false
+                },
+                "s47: retry not yet ready",
+            )?
+            
+            clock.advance(mutable clk, 100_000_000)
+            let late = queue.acquire(mutable q, 3, 1_000_000_000, clk, allocator)?
+            return match late {
+                case .none => assert.assert_true(false, "s47: retry should be available")?
+                case .some(let a2) => assert.assert_eq_u64(a2.job_id, id, "s47: same job re-acquired")?
+            }
+        }
+    }
+}

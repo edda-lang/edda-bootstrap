@@ -1,0 +1,9 @@
+[package]
+name = "edda-rt-alloc"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+edda-rt-stats = { path = "../edda-rt-stats" }

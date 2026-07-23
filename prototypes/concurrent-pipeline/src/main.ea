@@ -1,0 +1,88 @@
+
+
+
+
+
+
+
+
+
+import std.mem.alloc
+import std.io.stream
+
+
+
+
+
+
+
+public function count_word_starts(buf: [u8]) -> usize {
+    var count: usize = 0
+    var i: usize = 0
+    let n = buf.len()
+    loop decreases (n - i) {
+        if i >= n { break }
+        let c = buf[i]
+        let is_ws = (c == 32 || c == 9 || c == 10)
+        if !is_ws {
+            if i == 0 {
+                count = count + 1
+            } else {
+                let prev = buf[i - 1]
+                let prev_ws = (prev == 32 || prev == 9 || prev == 10)
+                if prev_ws { count = count + 1 }
+            }
+        }
+        i = i + 1
+    }
+    return count
+}
+
+
+
+
+
+
+
+
+public function aggregate(
+    a: [u8],
+    b: [u8],
+    c: [u8],
+    exec: Executor,
+) -> usize
+    with {exec}
+{
+    return scope(exec) group {
+        let ta = group.spawn { count_word_starts(a) }
+        let tb = group.spawn { count_word_starts(b) }
+        let tc = group.spawn { count_word_starts(c) }
+        ta.await + tb.await + tc.await
+    }
+}
+
+
+
+
+
+
+public function main(
+    out: Stdout,
+    exec: Executor,
+    allocator: mutable Allocator,
+) -> ()
+    with {out, exec, allocator}
+{
+    let text_a = "alpha beta gamma delta epsilon zeta"
+    let text_b = "one two three four five six"
+    let text_c = "a small pipeline over baked text inputs"
+    let total = aggregate(
+        text_a.bytes(),
+        text_b.bytes(),
+        text_c.bytes(),
+        exec,
+    )
+    handle err: alloc.AllocError -> out.print_line("error: out of memory") {
+        out.print_line(f"total word starts: {total}")
+    }
+}

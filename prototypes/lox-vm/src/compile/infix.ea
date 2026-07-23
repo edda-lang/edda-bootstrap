@@ -1,0 +1,25 @@
+import std.mem.alloc
+
+import local.chunk
+import local.opcode
+
+public function emit_jump(
+    line: u32,
+    c: mutable chunk.Chunk,
+    op: opcode.Op,
+    allocator: Allocator,
+) -> usize
+    with {allocator, err: alloc.AllocError}
+{
+    return chunk.chunk_emit_jump(mutable c, op, line, allocator)?
+}
+
+
+public function patch_jump(c: mutable chunk.Chunk, offset: usize) -> ()
+    with {err: chunk.ChunkError}
+{
+    if offset + 2 > chunk.chunk_code_len(c) {
+        raise chunk.ChunkError.jump_too_long
+    }
+    chunk.chunk_patch_jump(mutable c, offset)?
+}

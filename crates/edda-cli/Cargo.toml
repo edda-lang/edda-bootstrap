@@ -1,0 +1,24 @@
+[package]
+name = "edda-cli"
+description = "The `edda` binary: build/check/run/test/bench/gc/fmt/daemon/...."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "edda"
+path = "src/main.rs"
+
+[dependencies]
+edda-cache.workspace = true
+edda-diag.workspace = true
+edda-driver.workspace = true
+edda-intern.workspace = true
+edda-span.workspace = true
+edda-syntax.workspace = true
+notify.workspace = true

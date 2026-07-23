@@ -1,0 +1,182 @@
+
+
+import std.mem.alloc
+import local.assert.assert
+import local.clock.clock
+import local.queue.queue.queue
+import local.queue.snapshot.snapshot
+import local.queue.error as queue_error
+import local.test.support as test_support
+
+
+public function s146(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    queue.register_namespace(mutable q, "ns_a", 2, 5, allocator)?
+    queue.register_namespace(mutable q, "ns_b", 2, 5, allocator)?
+    let no_caps: [String] = test_support.empty_str(allocator)?
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    let _ = queue.enqueue_full2(mutable q, "a1", 5, 0, "ns_a", no_deps, no_caps, allocator)?
+    let _ = queue.enqueue_full2(mutable q, "a2", 5, 0, "ns_a", no_deps, no_caps, allocator)?
+    let _ = queue.enqueue_full2(mutable q, "b1", 5, 0, "ns_b", no_deps, no_caps, allocator)?
+    let _ = queue.enqueue_full2(mutable q, "b2", 5, 0, "ns_b", no_deps, no_caps, allocator)?
+    var ns_a_full: bool = false
+    handle err: queue_error.QueueError -> { ns_a_full = true } {
+        let _ = queue.enqueue_full2(mutable q, "a3", 5, 0, "ns_a", no_deps, no_caps, allocator)?
+    }
+    assert.assert_true(ns_a_full, "s146: ns_a at capacity rejects")?
+    
+    var ns_b_full: bool = false
+    handle err: queue_error.QueueError -> { ns_b_full = true } {
+        let _ = queue.enqueue_full2(mutable q, "b3", 5, 0, "ns_b", no_deps, no_caps, allocator)?
+    }
+    assert.assert_true(ns_b_full, "s146: ns_b at its own capacity rejects independently")?
+    let _ = clk
+}
+
+
+public function s147(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let no_caps: [String] = test_support.empty_str(allocator)?
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    let _ = queue.enqueue_full2(mutable q, "a1", 5, 0, "ns_a", no_deps, no_caps, allocator)?
+    let _ = queue.enqueue_full2(mutable q, "a2", 5, 0, "ns_a", no_deps, no_caps, allocator)?
+    let _ = queue.enqueue_full2(mutable q, "b1", 5, 0, "ns_b", no_deps, no_caps, allocator)?
+    let m = queue.metrics_snapshot(q)
+    var per_ns_sum: u64 = 0
+    let nc: usize = queue.namespace_metrics_count(q)
+    var i: usize = 0
+    loop
+        decreases nc - i
+    {
+        if i >= nc { break }
+        let ns_m = queue.namespace_metrics_at(q, i)
+        per_ns_sum = per_ns_sum + ns_m.enqueued_total
+        i = i + 1
+    }
+    assert.assert_eq_u64(per_ns_sum, m.enqueued_total, "s147: per-ns sum matches queue rollup")?
+    assert.assert_eq_u64(m.enqueued_total, 3, "s147: 3 enqueues recorded")?
+}
+
+
+public function s148(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let no_caps: [String] = test_support.empty_str(allocator)?
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    let a_id: u64 = queue.enqueue_full2(
+        mutable q, "a", 5, 0, "ns_a", no_deps, no_caps, allocator,
+    )?
+    let cross_deps: [u64] = test_support.one_u64(a_id, allocator)?
+    var raised: bool = false
+    handle err: queue_error.QueueError -> { raised = true } {
+        let _ = queue.enqueue_full2(
+            mutable q, "b", 5, 0, "ns_b", cross_deps, no_caps, allocator,
+        )?
+    }
+    assert.assert_true(raised, "s148: cross-namespace dep rejected")?
+}
+
+
+public function s149(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    assert.assert_eq_usize(queue.namespace_count(q), 0, "s149: pre-enqueue empty")?
+    let _ = queue.enqueue(mutable q, "x", allocator)?
+    assert.assert_eq_usize(queue.namespace_count(q), 1, "s149: default namespace materialised")?
+    let no_caps: [String] = test_support.empty_str(allocator)?
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    let _ = queue.enqueue_full2(mutable q, "y", 5, 0, "other", no_deps, no_caps, allocator)?
+    assert.assert_eq_usize(queue.namespace_count(q), 2, "s149: second namespace materialised")?
+}
+
+
+public function s150(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let no_caps: [String] = test_support.empty_str(allocator)?
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    queue.register_namespace(mutable q, "small", 5, 2, allocator)?
+    var clk: clock.LogicalClock = clock.new()
+    let limit: usize = 3
+    var k: usize = 0
+    loop
+        decreases limit - k
+    {
+        if k >= limit { break }
+        let id: u64 = queue.enqueue_full2(
+            mutable q, "doomed", 5, 0, "small", no_deps, no_caps, allocator,
+        )?
+        let _ = fail_until_dead(mutable q, id, mutable clk, allocator)?
+        k = k + 1
+    }
+    
+    
+    var small_count: usize = 0
+    let n: usize = queue.dead_letter_len(q)
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        let e = queue.dead_letter_at(q, i)
+        let n2: usize = small_count
+        let _ = e
+        let _ = n2
+        small_count = small_count + 1
+        i = i + 1
+    }
+    assert.assert_eq_usize(small_count, 2, "s150: namespace cap drops oldest dead entry")?
+}
+
+
+public function s151(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    queue.register_namespace(mutable q, "tight", 3, 4, allocator)?
+    let snap: snapshot.Snapshot = snapshot.take_snapshot(q, allocator)?
+    var restored: queue.JobQueue = snapshot.restore(snap, allocator)?
+    let no_caps: [String] = test_support.empty_str(allocator)?
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    
+    let _ = queue.enqueue_full2(mutable restored, "a", 5, 0, "tight", no_deps, no_caps, allocator)?
+    let _ = queue.enqueue_full2(mutable restored, "b", 5, 0, "tight", no_deps, no_caps, allocator)?
+    let _ = queue.enqueue_full2(mutable restored, "c", 5, 0, "tight", no_deps, no_caps, allocator)?
+    var raised: bool = false
+    handle err: queue_error.QueueError -> { raised = true } {
+        let _ = queue.enqueue_full2(
+            mutable restored, "d", 5, 0, "tight", no_deps, no_caps, allocator,
+        )?
+    }
+    assert.assert_true(raised, "s151: namespace cap survives restart")?
+}
+
+
+function fail_until_dead(
+    q: mutable queue.JobQueue,
+    id: u64,
+    clk: mutable clock.LogicalClock,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: queue_error.QueueError, err: alloc.AllocError}
+{
+    let limit: usize = 3
+    var i: usize = 0
+    loop
+        decreases limit - i
+    {
+        if i >= limit { break }
+        let _ = queue.acquire(mutable q, 100, 1_000_000_000, clk, allocator)?
+        queue.fail(mutable q, 100, id, "always", clk, allocator)?
+        clock.advance(mutable clk, 60_000_000_000)
+        i = i + 1
+    }
+}

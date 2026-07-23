@@ -1,0 +1,108 @@
+
+
+
+
+
+import local.expr
+import std.text.str
+
+
+
+public type ParseError {
+    case wrong_token_count(got: usize)
+    case invalid_operator
+    case invalid_number
+}
+
+
+
+
+function skip_space(bytes: [u8], start: usize) -> usize
+    with {divergence}
+    requires start <= bytes.len()
+    ensures result >= start
+    ensures result <= bytes.len()
+{
+    var i = start
+    loop {
+        if i >= bytes.len() { return i }
+        let b = bytes[i]
+        if b != 32 && b != 9 { return i }
+        i = i + 1
+    }
+}
+
+
+
+
+function scan_end(bytes: [u8], start: usize) -> usize
+    with {divergence}
+    requires start <= bytes.len()
+    ensures result >= start
+    ensures result <= bytes.len()
+{
+    var i = start
+    loop {
+        if i >= bytes.len() { return i }
+        let b = bytes[i]
+        if b == 32 || b == 9 || b == 10 || b == 13 { return i }
+        i = i + 1
+    }
+}
+
+
+
+
+function parse_op(tok: [u8]) -> expr.Op
+    with {err: ParseError}
+{
+    if tok.len() != 1 {
+        raise ParseError.invalid_operator
+    }
+    let b = tok[0]
+    if b == 43 { return expr.Op.add }
+    if b == 45 { return expr.Op.subtract }
+    if b == 42 { return expr.Op.multiply }
+    if b == 47 { return expr.Op.divide }
+    raise ParseError.invalid_operator
+}
+
+
+
+function parse_number(tok: [u8]) -> f64
+    with {err: ParseError}
+{
+    return handle err: str.ParseFloatError -> (raise ParseError.invalid_number) {
+        str.parse_f64(tok)?
+    }
+}
+
+
+
+
+
+
+public function parse_expr(input: [u8]) -> expr.Expr
+    with {err: ParseError, divergence}
+{
+    let t0s = skip_space(input, 0)
+    let t0e = scan_end(input, t0s)
+    if t0s == t0e { raise ParseError.wrong_token_count(got: 0) }
+
+    let t1s = skip_space(input, t0e)
+    let t1e = scan_end(input, t1s)
+    if t1s == t1e { raise ParseError.wrong_token_count(got: 1) }
+
+    let t2s = skip_space(input, t1e)
+    let t2e = scan_end(input, t2s)
+    if t2s == t2e { raise ParseError.wrong_token_count(got: 2) }
+
+    let trail = skip_space(input, t2e)
+    if trail < input.len() { raise ParseError.wrong_token_count(got: 4) }
+
+    let left = parse_number(input[t0s..<t0e])?
+    let op   = parse_op(input[t1s..<t1e])?
+    let right = parse_number(input[t2s..<t2e])?
+
+    return expr.Expr { left: left, op: op, right: right }
+}

@@ -1,0 +1,39 @@
+[package]
+name = "edda-mimir-hash"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Three Mímir hash walkers: rune_hash, surface_hash, and effect_hash per 08-packages.md §4"
+
+[dependencies]
+edda-cache     = { path = "../edda-cache" }
+edda-mimir-canonical = { path = "../edda-mimir-canonical" }
+
+[dev-dependencies]
+edda-mimir-archive = { path = "../edda-mimir-archive" }
+edda-mimir-crypto  = { path = "../edda-mimir-crypto" }
+edda-manifest      = { path = "../edda-manifest" }
+edda-span.workspace = true
+edda-diag.workspace = true
+tempfile           = "3"
+
+[[test]]
+name = "mimir_hash_reproducibility"
+path = "tests/mimir_hash_reproducibility.rs"
+
+[[test]]
+name = "mimir_capability_escalation"
+path = "tests/mimir_capability_escalation.rs"
+
+[[test]]
+name = "mimir_surface_hash_tamper"
+path = "tests/mimir_surface_hash_tamper.rs"
+
+[[test]]
+name = "mimir_signature_failures"
+path = "tests/mimir_signature_failures.rs"
+
+[[test]]
+name = "mimir_lockfile_roundtrip"
+path = "tests/mimir_lockfile_roundtrip.rs"

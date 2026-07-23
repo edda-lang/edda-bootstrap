@@ -1,0 +1,21 @@
+[package]
+name = "edda-structmap"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version.workspace = true
+
+[features]
+default = ["bpe-tokenizer"]
+# Real BPE token measurement for the structure-map budget gates. When
+# off, the budget pass falls back to the `chars_per_token` estimate
+# (degraded — the driver warns when the fallback runs).
+bpe-tokenizer = ["dep:tiktoken-rs"]
+
+[dependencies]
+edda-span = { workspace = true }
+edda-intern = { workspace = true }
+edda-syntax = { workspace = true }
+edda-resolve = { workspace = true }
+edda-types = { workspace = true }
+tiktoken-rs = { version = "0.6", optional = true }

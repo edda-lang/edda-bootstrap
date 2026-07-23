@@ -1,0 +1,7 @@
+[package]
+name = "console-calculator"
+version = "0.1.0"
+root_namespace = "console_calculator"
+
+[build]
+default_target = "x86-64-windows-msvc"

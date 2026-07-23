@@ -1,0 +1,74 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+public type NamespaceMetrics {
+    name: String,
+    enqueued_total: u64,
+    acquired_total: u64,
+    completed_total: u64,
+    failed_total: u64,
+    lease_expired_total: u64,
+    dead_lettered_total: u64,
+    retry_scheduled_total: u64,
+    cancelled_total: u64,
+    promoted_total: u64,
+    active_count: usize,
+    leased_count: usize,
+    dead_letter_count: usize,
+}
+
+
+
+
+
+
+
+
+
+
+
+public type MetricsSnapshot {
+    enqueued_total: u64,
+    acquired_total: u64,
+    completed_total: u64,
+    failed_total: u64,
+    lease_expired_total: u64,
+    dead_lettered_total: u64,
+    retry_scheduled_total: u64,
+    cancelled_total: u64,
+    promoted_total: u64,
+    active_count: usize,
+    leased_count: usize,
+    dead_letter_count: usize,
+    cancelled_count: usize,
+    audit_event_count: usize,
+}

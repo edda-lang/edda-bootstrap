@@ -1,0 +1,30 @@
+[package]
+name = "edda-compile"
+description = "MIR -> LLVM IR -> object-file backend via inkwell (LLVM 18)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+edda-span.workspace = true
+edda-diag.workspace = true
+edda-intern.workspace = true
+edda-mir.workspace = true
+edda-target.workspace = true
+inkwell = { version = "0.5", default-features = false, features = [
+    "llvm18-0-no-llvm-linking",
+    "target-x86",
+    "target-aarch64",
+    "target-riscv",
+    "target-webassembly",
+], optional = true }
+
+[features]
+# Default build excludes the LLVM backend so the workspace remains
+# buildable without LLVM 18 development libraries on PATH. Opt in with
+# `cargo build -p edda-compile --features llvm` once LLVM 18 (with
+# `llvm-config` reachable, or `LLVM_SYS_180_PREFIX` set) is installed.
+default = []
+llvm = ["dep:inkwell"]

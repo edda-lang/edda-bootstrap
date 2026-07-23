@@ -1,0 +1,15 @@
+[package]
+name = "edda-link"
+description = "Linker driver (mold/lld) and section-level dead-code elimination."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+edda-diag.workspace = true
+edda-span.workspace = true
+edda-target.workspace = true
+object = { version = "0.39", default-features = false, features = ["read", "std", "wasm"] }
+smol_str = "0.3"

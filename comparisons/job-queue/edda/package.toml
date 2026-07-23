@@ -1,0 +1,7 @@
+[package]
+name = "job_queue"
+version = "0.1.0"
+root_namespace = "job_queue"
+
+[build]
+default_target = "x86-64-windows-msvc"

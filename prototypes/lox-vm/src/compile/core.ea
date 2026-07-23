@@ -1,0 +1,194 @@
+import std.mem.alloc
+import std.collections.vec
+
+import local.chunk
+import local.lex.lex as lex
+import local.lex.scan
+import local.opcode
+
+spec std.collections.vec.Vec(Local)
+
+public type ParseError {
+    case expected_expression
+    case expected_semicolon
+    case expected_right_paren
+    case expected_left_paren
+    case expected_right_brace
+    case expected_left_brace
+    case expected_identifier
+    case expected_equal
+    case invalid_assignment_target
+    case too_many_locals
+    case duplicate_local
+    case undefined_local
+    case unexpected_token(kind: lex.TokenKind)
+}
+
+
+public type Local {
+    name: [u8]
+    depth: i32
+}
+
+
+public type Compiler {
+    scanner: lex.Scanner
+    current: lex.Token
+    previous: lex.Token
+    locals: Vec_Local.Vec
+    scope_depth: i32
+}
+
+
+public function compiler_new(
+    source: [u8],
+    allocator: Allocator,
+) -> Compiler
+    with {allocator, err: alloc.AllocError, err: lex.LexError, divergence}
+{
+    var scanner = lex.scanner_new(source)
+    let first = scan.scan_token(mutable scanner)?
+    let locals_data = Vec_Local._alloc_array(allocator, 0)?
+    let locals = Vec_Local.Vec { capacity: 0, len: 0, data: locals_data }
+    return Compiler {
+        scanner: scanner,
+        current: first,
+        previous: first,
+        locals: locals,
+        scope_depth: 0,
+    }
+}
+
+
+public function advance_token(co: mutable Compiler) -> ()
+    with {err: lex.LexError, divergence}
+{
+    co.previous = co.current
+    co.current = scan.scan_token(mutable co.scanner)?
+}
+
+
+public function check_token(co: Compiler, kind: lex.TokenKind) -> bool {
+    return token_kinds_equal(co.current.kind, kind)
+}
+
+
+function token_kinds_equal(a: lex.TokenKind, b: lex.TokenKind) -> bool {
+    let an = token_kind_index(a)
+    let bn = token_kind_index(b)
+    return an == bn
+}
+
+
+function token_kind_index(k: lex.TokenKind) -> u8 {
+    return match k {
+        case .tk_left_paren    => 0
+        case .tk_right_paren   => 1
+        case .tk_left_brace    => 2
+        case .tk_right_brace   => 3
+        case .tk_comma         => 4
+        case .tk_dot           => 5
+        case .tk_minus         => 6
+        case .tk_plus          => 7
+        case .tk_semicolon     => 8
+        case .tk_slash         => 9
+        case .tk_star          => 10
+        case .tk_bang          => 11
+        case .tk_bang_equal    => 12
+        case .tk_equal         => 13
+        case .tk_equal_equal   => 14
+        case .tk_greater       => 15
+        case .tk_greater_equal => 16
+        case .tk_less          => 17
+        case .tk_less_equal    => 18
+        case .tk_identifier    => 19
+        case .tk_string        => 20
+        case .tk_number        => 21
+        case .tk_and           => 22
+        case .tk_else          => 23
+        case .tk_false         => 24
+        case .tk_for           => 25
+        case .tk_if            => 26
+        case .tk_nil           => 27
+        case .tk_or            => 28
+        case .tk_print         => 29
+        case .tk_true          => 30
+        case .tk_var           => 31
+        case .tk_while         => 32
+        case .tk_eof           => 33
+    }
+}
+
+
+public function match_token(co: mutable Compiler, kind: lex.TokenKind) -> bool
+    with {err: lex.LexError, divergence}
+{
+    if !check_token(co, kind) { return false }
+    advance_token(mutable co)?
+    return true
+}
+
+
+public function consume_token(
+    co: mutable Compiler,
+    kind: lex.TokenKind,
+    error_kind: ParseError,
+) -> ()
+    with {err: ParseError, err: lex.LexError, divergence}
+{
+    if check_token(co, kind) {
+        advance_token(mutable co)?
+        return
+    }
+    raise error_kind
+}
+
+
+public function emit_op(
+    co: Compiler,
+    c: mutable chunk.Chunk,
+    op: opcode.Op,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: alloc.AllocError}
+{
+    chunk.chunk_emit_op(mutable c, op, co.previous.line, allocator)?
+}
+
+
+public function bytes_to_string(b: [u8], allocator: Allocator) -> String
+    with {allocator, err: alloc.AllocError, divergence}
+{
+    var buf: [u8] = alloc_u8_array(allocator, b.len())?
+    var i: usize = 0
+    loop {
+        if i >= b.len() { break }
+        buf[i] = b[i]
+        i = i + 1
+    }
+    return bytes_to_string_extern(take buf)
+}
+
+
+function alloc_u8_array(allocator: Allocator, n: usize) -> [u8]
+    with {allocator, err: alloc.AllocError}
+    extern "__edda_alloc_array"
+
+
+function bytes_to_string_extern(b: take [u8]) -> String {
+    return String.from_utf8(take b)
+}
+
+
+public function bytes_equal(a: [u8], b: [u8]) -> bool
+    with {divergence}
+{
+    if a.len() != b.len() { return false }
+    var i: usize = 0
+    loop {
+        if i >= a.len() { break }
+        if a[i] != b[i] { return false }
+        i = i + 1
+    }
+    return true
+}

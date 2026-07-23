@@ -1,0 +1,224 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+public type Op {
+    case op_constant
+    case op_nil
+    case op_true
+    case op_false
+    case op_pop
+    case op_get_local
+    case op_set_local
+    case op_get_global
+    case op_set_global
+    case op_define_global
+    case op_equal
+    case op_not_equal
+    case op_greater
+    case op_greater_equal
+    case op_less
+    case op_less_equal
+    case op_add
+    case op_subtract
+    case op_multiply
+    case op_divide
+    case op_not
+    case op_negate
+    case op_print
+    case op_jump
+    case op_jump_if_false
+    case op_loop_back
+    case op_return
+}
+
+
+
+
+
+
+public type OpcodeError {
+    case unknown_opcode(byte: u8)
+}
+
+
+
+
+
+
+public function encode_byte(op: Op) -> u8 {
+    return match op {
+        case .op_constant      => 0
+        case .op_nil           => 1
+        case .op_true          => 2
+        case .op_false         => 3
+        case .op_pop           => 4
+        case .op_get_local     => 5
+        case .op_set_local     => 6
+        case .op_get_global    => 7
+        case .op_set_global    => 8
+        case .op_define_global => 9
+        case .op_equal         => 10
+        case .op_not_equal     => 11
+        case .op_greater       => 12
+        case .op_greater_equal => 13
+        case .op_less          => 14
+        case .op_less_equal    => 15
+        case .op_add           => 16
+        case .op_subtract      => 17
+        case .op_multiply      => 18
+        case .op_divide        => 19
+        case .op_not           => 20
+        case .op_negate        => 21
+        case .op_print         => 22
+        case .op_jump          => 23
+        case .op_jump_if_false => 24
+        case .op_loop_back     => 25
+        case .op_return        => 26
+    }
+}
+
+
+
+
+
+
+
+public function decode_byte(b: u8) -> Op
+    with {err: OpcodeError}
+{
+    if b == 0  { return Op.op_constant }
+    if b == 1  { return Op.op_nil }
+    if b == 2  { return Op.op_true }
+    if b == 3  { return Op.op_false }
+    if b == 4  { return Op.op_pop }
+    if b == 5  { return Op.op_get_local }
+    if b == 6  { return Op.op_set_local }
+    if b == 7  { return Op.op_get_global }
+    if b == 8  { return Op.op_set_global }
+    if b == 9  { return Op.op_define_global }
+    if b == 10 { return Op.op_equal }
+    if b == 11 { return Op.op_not_equal }
+    if b == 12 { return Op.op_greater }
+    if b == 13 { return Op.op_greater_equal }
+    if b == 14 { return Op.op_less }
+    if b == 15 { return Op.op_less_equal }
+    if b == 16 { return Op.op_add }
+    if b == 17 { return Op.op_subtract }
+    if b == 18 { return Op.op_multiply }
+    if b == 19 { return Op.op_divide }
+    if b == 20 { return Op.op_not }
+    if b == 21 { return Op.op_negate }
+    if b == 22 { return Op.op_print }
+    if b == 23 { return Op.op_jump }
+    if b == 24 { return Op.op_jump_if_false }
+    if b == 25 { return Op.op_loop_back }
+    if b == 26 { return Op.op_return }
+    raise OpcodeError.unknown_opcode(byte: b)
+}
+
+
+
+
+
+
+
+
+public function operand_byte_count(op: Op) -> usize {
+    return match op {
+        case .op_constant      => 1
+        case .op_nil           => 0
+        case .op_true          => 0
+        case .op_false         => 0
+        case .op_pop           => 0
+        case .op_get_local     => 1
+        case .op_set_local     => 1
+        case .op_get_global    => 1
+        case .op_set_global    => 1
+        case .op_define_global => 1
+        case .op_equal         => 0
+        case .op_not_equal     => 0
+        case .op_greater       => 0
+        case .op_greater_equal => 0
+        case .op_less          => 0
+        case .op_less_equal    => 0
+        case .op_add           => 0
+        case .op_subtract      => 0
+        case .op_multiply      => 0
+        case .op_divide        => 0
+        case .op_not           => 0
+        case .op_negate        => 0
+        case .op_print         => 0
+        case .op_jump          => 2
+        case .op_jump_if_false => 2
+        case .op_loop_back     => 2
+        case .op_return        => 0
+    }
+}
+
+
+
+
+
+
+public function op_mnemonic(op: Op) -> String {
+    return match op {
+        case .op_constant      => "OP_CONSTANT"
+        case .op_nil           => "OP_NIL"
+        case .op_true          => "OP_TRUE"
+        case .op_false         => "OP_FALSE"
+        case .op_pop           => "OP_POP"
+        case .op_get_local     => "OP_GET_LOCAL"
+        case .op_set_local     => "OP_SET_LOCAL"
+        case .op_get_global    => "OP_GET_GLOBAL"
+        case .op_set_global    => "OP_SET_GLOBAL"
+        case .op_define_global => "OP_DEFINE_GLOBAL"
+        case .op_equal         => "OP_EQUAL"
+        case .op_not_equal     => "OP_NOT_EQUAL"
+        case .op_greater       => "OP_GREATER"
+        case .op_greater_equal => "OP_GREATER_EQUAL"
+        case .op_less          => "OP_LESS"
+        case .op_less_equal    => "OP_LESS_EQUAL"
+        case .op_add           => "OP_ADD"
+        case .op_subtract      => "OP_SUBTRACT"
+        case .op_multiply      => "OP_MULTIPLY"
+        case .op_divide        => "OP_DIVIDE"
+        case .op_not           => "OP_NOT"
+        case .op_negate        => "OP_NEGATE"
+        case .op_print         => "OP_PRINT"
+        case .op_jump          => "OP_JUMP"
+        case .op_jump_if_false => "OP_JUMP_IF_FALSE"
+        case .op_loop_back     => "OP_LOOP_BACK"
+        case .op_return        => "OP_RETURN"
+    }
+}

@@ -1,0 +1,16 @@
+[package]
+name = "edda-mcp"
+description = "Model Context Protocol surface over the edda-daemon."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+edda-diag.workspace = true
+edda-daemon.workspace = true
+edda-driver.workspace = true
+edda-span.workspace = true
+serde.workspace = true
+serde_json.workspace = true

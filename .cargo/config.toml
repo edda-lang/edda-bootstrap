@@ -1,0 +1,13 @@
+[net]
+git-fetch-with-cli = true
+
+[alias]
+xtask = "run --package xtask --quiet --"
+
+# Vendored Z3 (z3-sys, used by edda-refine) ships a CMakeLists that predates
+# CMake 3.5's compatibility cut-off. CMake 4 dropped the legacy mode; the
+# documented escape hatch is to pin the policy version explicitly. Persisting
+# in workspace config so every dev + CI runner gets the same behaviour.
+[env]
+CMAKE_POLICY_VERSION_MINIMUM = "3.5"
+

@@ -1,0 +1,372 @@
+import std.mem.alloc
+import std.text.str
+import std.collections.vec
+
+import local.chunk
+import local.lex.lex as lex
+import local.opcode
+import local.value
+import local.compile.core
+import local.compile.infix
+
+spec std.collections.vec.Vec(core.Local)
+
+function prec_none() -> u8 { return 0 }
+
+
+function prec_assignment() -> u8 { return 1 }
+
+
+function prec_or() -> u8 { return 2 }
+
+
+function prec_and() -> u8 { return 3 }
+
+
+function prec_equality() -> u8 { return 4 }
+
+
+function prec_comparison() -> u8 { return 5 }
+
+
+function prec_term() -> u8 { return 6 }
+
+
+function prec_factor() -> u8 { return 7 }
+
+
+
+
+function prec_unary() -> u8 { return 8 }
+
+
+
+function precedence_of(kind: lex.TokenKind) -> u8 {
+    return match kind {
+        case .tk_or            => prec_or()
+        case .tk_and           => prec_and()
+        case .tk_equal_equal   => prec_equality()
+        case .tk_bang_equal    => prec_equality()
+        case .tk_less          => prec_comparison()
+        case .tk_less_equal    => prec_comparison()
+        case .tk_greater       => prec_comparison()
+        case .tk_greater_equal => prec_comparison()
+        case .tk_plus          => prec_term()
+        case .tk_minus         => prec_term()
+        case .tk_star          => prec_factor()
+        case .tk_slash         => prec_factor()
+        case _                 => prec_none()
+    }
+}
+
+
+function emit_constant(
+    co: core.Compiler,
+    c: mutable chunk.Chunk,
+    v: take value.Value,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: alloc.AllocError, err: chunk.ChunkError}
+{
+    chunk.chunk_emit_constant(mutable c, take v, co.previous.line, allocator)?
+}
+
+
+function resolve_local(co: core.Compiler, name: [u8]) -> u8
+    with {err: core.ParseError, divergence}
+{
+    let count = Vec_Local.len(co.locals)
+    var i: usize = count
+    loop {
+        if i == 0 { break }
+        i = i - 1
+        let l = Vec_Local.at(co.locals, i)
+        if core.bytes_equal(l.name, name) {
+            return i as u8
+        }
+    }
+    raise core.ParseError.undefined_local
+}
+
+
+public function expression(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    parse_precedence(mutable co, mutable c, prec_assignment(), allocator)?
+}
+
+
+public function parse_precedence(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    target_prec: u8,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    core.advance_token(mutable co)?
+    let can_assign = target_prec <= prec_assignment()
+    let prefix_kind = co.previous.kind
+    dispatch_prefix(mutable co, mutable c, prefix_kind, can_assign, allocator)?
+    loop {
+        let cur_prec = precedence_of(co.current.kind)
+        if cur_prec < target_prec { break }
+        core.advance_token(mutable co)?
+        let infix_kind = co.previous.kind
+        dispatch_infix(mutable co, mutable c, infix_kind, allocator)?
+    }
+    if can_assign && core.check_token(co, lex.TokenKind.tk_equal) {
+        raise core.ParseError.invalid_assignment_target
+    }
+}
+
+
+function dispatch_prefix(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    kind: lex.TokenKind,
+    can_assign: bool,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    return match kind {
+        case .tk_left_paren => grouping(mutable co, mutable c, allocator)?
+        case .tk_minus      => unary_op(mutable co, mutable c, lex.TokenKind.tk_minus, allocator)?
+        case .tk_bang       => unary_op(mutable co, mutable c, lex.TokenKind.tk_bang, allocator)?
+        case .tk_number     => number_literal(co, mutable c, allocator)?
+        case .tk_string     => string_literal(co, mutable c, allocator)?
+        case .tk_identifier => named_variable(mutable co, mutable c, can_assign, allocator)?
+        case .tk_true       => core.emit_op(co, mutable c, opcode.Op.op_true, allocator)?
+        case .tk_false      => core.emit_op(co, mutable c, opcode.Op.op_false, allocator)?
+        case .tk_nil        => core.emit_op(co, mutable c, opcode.Op.op_nil, allocator)?
+        case _              => raise core.ParseError.expected_expression
+    }
+}
+
+
+function dispatch_infix(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    kind: lex.TokenKind,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    return match kind {
+        case .tk_plus          => binary_op(mutable co, mutable c, lex.TokenKind.tk_plus, allocator)?
+        case .tk_minus         => binary_op(mutable co, mutable c, lex.TokenKind.tk_minus, allocator)?
+        case .tk_star          => binary_op(mutable co, mutable c, lex.TokenKind.tk_star, allocator)?
+        case .tk_slash         => binary_op(mutable co, mutable c, lex.TokenKind.tk_slash, allocator)?
+        case .tk_equal_equal   => binary_op(mutable co, mutable c, lex.TokenKind.tk_equal_equal, allocator)?
+        case .tk_bang_equal    => binary_op(mutable co, mutable c, lex.TokenKind.tk_bang_equal, allocator)?
+        case .tk_less          => binary_op(mutable co, mutable c, lex.TokenKind.tk_less, allocator)?
+        case .tk_less_equal    => binary_op(mutable co, mutable c, lex.TokenKind.tk_less_equal, allocator)?
+        case .tk_greater       => binary_op(mutable co, mutable c, lex.TokenKind.tk_greater, allocator)?
+        case .tk_greater_equal => binary_op(mutable co, mutable c, lex.TokenKind.tk_greater_equal, allocator)?
+        case .tk_and           => and_op(mutable co, mutable c, allocator)?
+        case .tk_or            => or_op(mutable co, mutable c, allocator)?
+        case _                 => raise core.ParseError.unexpected_token(kind: kind)
+    }
+}
+
+
+function grouping(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    expression(mutable co, mutable c, allocator)?
+    core.consume_token(mutable co, lex.TokenKind.tk_right_paren, core.ParseError.expected_right_paren)?
+}
+
+
+function number_literal(
+    co: core.Compiler,
+    c: mutable chunk.Chunk,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: core.ParseError, err: alloc.AllocError, err: chunk.ChunkError}
+{
+    let bytes = co.previous.lexeme
+    let n = handle err: str.ParseFloatError -> (raise core.ParseError.expected_expression) {
+        str.parse_f64(bytes)?
+    }
+    emit_constant(co, mutable c, value.value_number(n), allocator)?
+}
+
+
+function string_literal_value(tok: lex.Token, allocator: Allocator) -> String
+    with {allocator, err: alloc.AllocError, divergence}
+{
+    let bytes = tok.lexeme
+    if bytes.len() < 2 {
+        return core.bytes_to_string(bytes, allocator)?
+    }
+    return core.bytes_to_string(bytes[1..(bytes.len() - 1)], allocator)?
+}
+
+
+function string_literal(
+    co: core.Compiler,
+    c: mutable chunk.Chunk,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    let s = string_literal_value(co.previous, allocator)?
+    emit_constant(co, mutable c, value.value_string(take s), allocator)?
+}
+
+
+function named_variable(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    can_assign: bool,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    let name = co.previous.lexeme
+    let line = co.previous.line
+    let is_assign = can_assign && core.check_token(co, lex.TokenKind.tk_equal)
+    handle err: core.ParseError -> {
+        return emit_global_access(mutable co, mutable c, name, line, is_assign, allocator)?
+    } {
+        let slot = resolve_local(co, name)?
+        emit_local_access(mutable co, mutable c, slot, line, is_assign, allocator)?
+    }
+}
+
+
+function emit_local_access(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    slot: u8,
+    line: u32,
+    is_assign: bool,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    if is_assign {
+        core.consume_token(mutable co, lex.TokenKind.tk_equal, core.ParseError.expected_equal)?
+        expression(mutable co, mutable c, allocator)?
+        chunk.chunk_emit_op_byte(mutable c, opcode.Op.op_set_local, slot, line, allocator)?
+        return
+    }
+    chunk.chunk_emit_op_byte(mutable c, opcode.Op.op_get_local, slot, line, allocator)?
+}
+
+
+function emit_global_access(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    name: [u8],
+    line: u32,
+    is_assign: bool,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    let name_str = core.bytes_to_string(name, allocator)?
+    let idx = chunk.chunk_add_constant(mutable c, value.value_string(take name_str), allocator)?
+    if is_assign {
+        core.consume_token(mutable co, lex.TokenKind.tk_equal, core.ParseError.expected_equal)?
+        expression(mutable co, mutable c, allocator)?
+        chunk.chunk_emit_op_byte(mutable c, opcode.Op.op_set_global, idx, line, allocator)?
+        return
+    }
+    chunk.chunk_emit_op_byte(mutable c, opcode.Op.op_get_global, idx, line, allocator)?
+}
+
+
+function unary_op(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    op_token: lex.TokenKind,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    parse_precedence(mutable co, mutable c, prec_unary(), allocator)?
+    return match op_token {
+        case .tk_minus => core.emit_op(co, mutable c, opcode.Op.op_negate, allocator)?
+        case .tk_bang  => core.emit_op(co, mutable c, opcode.Op.op_not, allocator)?
+        case _         => raise core.ParseError.expected_expression
+    }
+}
+
+
+function binary_op(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    op_token: lex.TokenKind,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    let p = precedence_of(op_token)
+    parse_precedence(mutable co, mutable c, p + 1, allocator)?
+    return match op_token {
+        case .tk_plus          => core.emit_op(co, mutable c, opcode.Op.op_add, allocator)?
+        case .tk_minus         => core.emit_op(co, mutable c, opcode.Op.op_subtract, allocator)?
+        case .tk_star          => core.emit_op(co, mutable c, opcode.Op.op_multiply, allocator)?
+        case .tk_slash         => core.emit_op(co, mutable c, opcode.Op.op_divide, allocator)?
+        case .tk_equal_equal   => core.emit_op(co, mutable c, opcode.Op.op_equal, allocator)?
+        case .tk_bang_equal    => core.emit_op(co, mutable c, opcode.Op.op_not_equal, allocator)?
+        case .tk_less          => core.emit_op(co, mutable c, opcode.Op.op_less, allocator)?
+        case .tk_less_equal    => core.emit_op(co, mutable c, opcode.Op.op_less_equal, allocator)?
+        case .tk_greater       => core.emit_op(co, mutable c, opcode.Op.op_greater, allocator)?
+        case .tk_greater_equal => core.emit_op(co, mutable c, opcode.Op.op_greater_equal, allocator)?
+        case _                 => raise core.ParseError.expected_expression
+    }
+}
+
+
+function and_op(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    let end_jump = infix.emit_jump(co.previous.line, mutable c, opcode.Op.op_jump_if_false, allocator)?
+    core.emit_op(co, mutable c, opcode.Op.op_pop, allocator)?
+    parse_precedence(mutable co, mutable c, prec_and(), allocator)?
+    infix.patch_jump(mutable c, end_jump)?
+}
+
+
+function or_op(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    let else_jump = infix.emit_jump(co.previous.line, mutable c, opcode.Op.op_jump_if_false, allocator)?
+    let end_jump  = infix.emit_jump(co.previous.line, mutable c, opcode.Op.op_jump, allocator)?
+    infix.patch_jump(mutable c, else_jump)?
+    core.emit_op(co, mutable c, opcode.Op.op_pop, allocator)?
+    parse_precedence(mutable co, mutable c, prec_or(), allocator)?
+    infix.patch_jump(mutable c, end_jump)?
+}

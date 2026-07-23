@@ -1,0 +1,151 @@
+
+
+
+
+
+
+import std.text.str
+
+
+
+public type LexError {
+    case invalid_number
+    case unexpected_byte(b: u8)
+}
+
+
+
+
+
+
+public type Token {
+    case lparen
+    case rparen
+    case plus
+    case minus
+    case times
+    case slash
+    case number(value: f64)
+    case symbol(name: [u8])
+    case eof
+}
+
+
+function is_space(b: u8) -> bool {
+    return b == 32 || b == 9 || b == 13 || b == 10
+}
+
+
+function is_digit(b: u8) -> bool {
+    return b >= 48 && b <= 57
+}
+
+
+function is_symbol_start(b: u8) -> bool {
+    if b >= 65 && b <= 90 { return true }
+    if b >= 97 && b <= 122 { return true }
+    if b == 95 { return true }
+    return false
+}
+
+
+function is_symbol_body(b: u8) -> bool {
+    if is_symbol_start(b) { return true }
+    if is_digit(b) { return true }
+    return false
+}
+
+
+
+function skip_whitespace(input: [u8], start: usize) -> usize
+    with {divergence}
+    requires start <= input.len()
+    ensures result >= start
+    ensures result <= input.len()
+{
+    var i = start
+    loop {
+        if i >= input.len() { return i }
+        if !is_space(input[i]) { return i }
+        i = i + 1
+    }
+}
+
+
+
+
+function scan_number_end(input: [u8], start: usize) -> usize
+    with {divergence}
+    requires start < input.len()
+    ensures result > start
+    ensures result <= input.len()
+{
+    var i = start
+    var saw_dot = false
+    loop {
+        if i >= input.len() { return i }
+        let b = input[i]
+        if is_digit(b) {
+            i = i + 1
+        } else {
+            if b == 46 {
+                if saw_dot { return i }
+                saw_dot = true
+                i = i + 1
+            } else {
+                return i
+            }
+        }
+    }
+}
+
+
+
+function scan_symbol_end(input: [u8], start: usize) -> usize
+    with {divergence}
+    requires start < input.len()
+    ensures result > start
+    ensures result <= input.len()
+{
+    var i = start
+    loop {
+        if i >= input.len() { return i }
+        if !is_symbol_body(input[i]) { return i }
+        i = i + 1
+    }
+}
+
+
+
+
+
+
+
+public function next_token(input: [u8], pos: usize) -> (Token, usize)
+    with {err: LexError, divergence}
+    requires pos <= input.len()
+{
+    let start = skip_whitespace(input, pos)
+    if start >= input.len() {
+        return (Token.eof, start)
+    }
+    let b = input[start]
+    if b == 40 { return (Token.lparen, start + 1) }
+    if b == 41 { return (Token.rparen, start + 1) }
+    if b == 43 { return (Token.plus, start + 1) }
+    if b == 45 { return (Token.minus, start + 1) }
+    if b == 42 { return (Token.times, start + 1) }
+    if b == 47 { return (Token.slash, start + 1) }
+    if is_digit(b) {
+        let end = scan_number_end(input, start)
+        let value = handle err: str.ParseFloatError -> (raise LexError.invalid_number) {
+            str.parse_f64(input[start..<end])?
+        }
+        return (Token.number(value: value), end)
+    }
+    if is_symbol_start(b) {
+        let end = scan_symbol_end(input, start)
+        return (Token.symbol(name: input[start..<end]), end)
+    }
+    raise LexError.unexpected_byte(b: b)
+}

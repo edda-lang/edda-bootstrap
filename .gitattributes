@@ -1,0 +1,4 @@
+# Force LF for shell scripts — they must run via bash on Windows. Without
+# this, core.autocrlf=true converts to CRLF on checkout and bash fails with
+# "bad interpreter" errors.
+*.sh text eol=lf

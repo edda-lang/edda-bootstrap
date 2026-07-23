@@ -1,0 +1,11 @@
+[package]
+name = "edda-target"
+description = "Build-target triples, feature sets, and target-feature gating."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+edda-diag.workspace = true

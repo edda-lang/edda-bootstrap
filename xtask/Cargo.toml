@@ -1,0 +1,18 @@
+[package]
+name = "xtask"
+description = "Workspace build tasks (corpus enumeration, target-matrix runner, etc.)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "xtask"
+path = "src/main.rs"
+
+[dependencies]
+edda-span    = { workspace = true }
+edda-intern  = { workspace = true }
+edda-diag    = { workspace = true }
+edda-syntax  = { workspace = true }

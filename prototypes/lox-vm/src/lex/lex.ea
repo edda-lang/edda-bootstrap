@@ -1,0 +1,393 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+public type TokenKind {
+    case tk_left_paren
+    case tk_right_paren
+    case tk_left_brace
+    case tk_right_brace
+    case tk_comma
+    case tk_dot
+    case tk_minus
+    case tk_plus
+    case tk_semicolon
+    case tk_slash
+    case tk_star
+    case tk_bang
+    case tk_bang_equal
+    case tk_equal
+    case tk_equal_equal
+    case tk_greater
+    case tk_greater_equal
+    case tk_less
+    case tk_less_equal
+    case tk_identifier
+    case tk_string
+    case tk_number
+    case tk_and
+    case tk_else
+    case tk_false
+    case tk_for
+    case tk_if
+    case tk_nil
+    case tk_or
+    case tk_print
+    case tk_true
+    case tk_var
+    case tk_while
+    case tk_eof
+}
+
+
+
+
+
+
+
+
+public type Token {
+    kind: TokenKind
+    lexeme: [u8]
+    line: u32
+}
+
+
+
+public type LexError {
+    case unterminated_string
+    case unexpected_char(b: u8)
+    case unterminated_block_comment
+}
+
+
+
+
+
+public type Scanner {
+    source: [u8]
+    start: usize where start <= source.len()
+    current: usize where current <= source.len() && current >= start
+    line: u32
+}
+
+
+
+
+public function scanner_new(source: [u8]) -> Scanner {
+    return Scanner { source: source, start: 0, current: 0, line: 1 }
+}
+
+
+
+public function scanner_at_end(s: Scanner) -> bool {
+    return s.current >= s.source.len()
+}
+
+
+
+
+
+
+public function is_digit(b: u8) -> bool {
+    return b >= 48 && b <= 57
+}
+
+
+
+public function is_alpha(b: u8) -> bool {
+    if b >= 65 && b <= 90 { return true }
+    if b >= 97 && b <= 122 { return true }
+    if b == 95 { return true }
+    return false
+}
+
+
+
+function is_alphanumeric(b: u8) -> bool {
+    if is_alpha(b) { return true }
+    if is_digit(b) { return true }
+    return false
+}
+
+
+
+
+
+
+
+
+public function peek(s: Scanner) -> u8 {
+    if s.current >= s.source.len() { return 0 }
+    return s.source[s.current]
+}
+
+
+function peek_next(s: Scanner) -> u8 {
+    if s.current + 1 >= s.source.len() { return 0 }
+    return s.source[s.current + 1]
+}
+
+
+
+public function advance_byte(s: mutable Scanner) -> u8
+    requires s.current < s.source.len()
+{
+    let b = s.source[s.current]
+    s.current = s.current + 1
+    return b
+}
+
+
+
+
+function current_lexeme(s: Scanner) -> [u8] {
+    return s.source[s.start..s.current]
+}
+
+
+
+public function make_token(s: Scanner, kind: TokenKind) -> Token {
+    return Token { kind: kind, lexeme: current_lexeme(s), line: s.line }
+}
+
+
+
+
+
+
+
+public function skip_whitespace(s: mutable Scanner) -> ()
+    with {err: LexError, divergence}
+{
+    loop {
+        if scanner_at_end(s) { return }
+        let b = peek(s)
+        if b == 32 || b == 9 || b == 13 {
+            let _ = advance_byte(mutable s)
+            continue
+        }
+        if b == 10 {
+            s.line = s.line + 1
+            let _ = advance_byte(mutable s)
+            continue
+        }
+        if b == 47 {
+            let n = peek_next(s)
+            if n == 47 {
+                skip_line_comment(mutable s)
+                continue
+            }
+            if n == 42 {
+                skip_block_comment(mutable s)?
+                continue
+            }
+            return
+        }
+        return
+    }
+}
+
+
+
+
+function skip_line_comment(s: mutable Scanner) -> ()
+    with {divergence}
+{
+    loop {
+        if scanner_at_end(s) { return }
+        if peek(s) == 10 { return }
+        let _ = advance_byte(mutable s)
+    }
+}
+
+
+
+function skip_block_comment(s: mutable Scanner) -> ()
+    with {err: LexError, divergence}
+{
+    let _ = advance_byte(mutable s)
+    let _ = advance_byte(mutable s)
+    loop {
+        if scanner_at_end(s) {
+            raise LexError.unterminated_block_comment
+        }
+        let b = peek(s)
+        if b == 42 {
+            if peek_next(s) == 47 {
+                let _ = advance_byte(mutable s)
+                let _ = advance_byte(mutable s)
+                return
+            }
+        }
+        if b == 10 {
+            s.line = s.line + 1
+        }
+        let _ = advance_byte(mutable s)
+    }
+}
+
+
+
+
+
+
+
+
+
+
+public function scan_number(s: mutable Scanner) -> Token
+    with {divergence}
+{
+    loop {
+        if scanner_at_end(s) { break }
+        if !is_digit(peek(s)) { break }
+        let _ = advance_byte(mutable s)
+    }
+    if !scanner_at_end(s) {
+        if peek(s) == 46 {
+            if is_digit(peek_next(s)) {
+                let _ = advance_byte(mutable s)
+                loop {
+                    if scanner_at_end(s) { break }
+                    if !is_digit(peek(s)) { break }
+                    let _ = advance_byte(mutable s)
+                }
+            }
+        }
+    }
+    return make_token(s, TokenKind.tk_number)
+}
+
+
+
+
+public function scan_identifier(s: mutable Scanner) -> Token
+    with {divergence}
+{
+    loop {
+        if scanner_at_end(s) { break }
+        if !is_alphanumeric(peek(s)) { break }
+        let _ = advance_byte(mutable s)
+    }
+    let lexeme = current_lexeme(s)
+    let kind = identifier_kind(lexeme)
+    return Token { kind: kind, lexeme: lexeme, line: s.line }
+}
+
+
+
+
+
+
+function identifier_kind(lexeme: [u8]) -> TokenKind
+    with {divergence}
+{
+    if bytes_equal_ascii(lexeme, "and")   { return TokenKind.tk_and }
+    if bytes_equal_ascii(lexeme, "else")  { return TokenKind.tk_else }
+    if bytes_equal_ascii(lexeme, "false") { return TokenKind.tk_false }
+    if bytes_equal_ascii(lexeme, "for")   { return TokenKind.tk_for }
+    if bytes_equal_ascii(lexeme, "if")    { return TokenKind.tk_if }
+    if bytes_equal_ascii(lexeme, "nil")   { return TokenKind.tk_nil }
+    if bytes_equal_ascii(lexeme, "or")    { return TokenKind.tk_or }
+    if bytes_equal_ascii(lexeme, "print") { return TokenKind.tk_print }
+    if bytes_equal_ascii(lexeme, "true")  { return TokenKind.tk_true }
+    if bytes_equal_ascii(lexeme, "var")   { return TokenKind.tk_var }
+    if bytes_equal_ascii(lexeme, "while") { return TokenKind.tk_while }
+    return TokenKind.tk_identifier
+}
+
+
+
+
+function bytes_equal_ascii(slice: [u8], literal: String) -> bool
+    with {divergence}
+{
+    let lit = literal.bytes()
+    if slice.len() != lit.len() { return false }
+    var i: usize = 0
+    loop {
+        if i >= slice.len() { break }
+        if slice[i] != lit[i] { return false }
+        i = i + 1
+    }
+    return true
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+public function token_kind_name(k: TokenKind) -> String {
+    return match k {
+        case .tk_left_paren    => "LEFT_PAREN"
+        case .tk_right_paren   => "RIGHT_PAREN"
+        case .tk_left_brace    => "LEFT_BRACE"
+        case .tk_right_brace   => "RIGHT_BRACE"
+        case .tk_comma         => "COMMA"
+        case .tk_dot           => "DOT"
+        case .tk_minus         => "MINUS"
+        case .tk_plus          => "PLUS"
+        case .tk_semicolon     => "SEMICOLON"
+        case .tk_slash         => "SLASH"
+        case .tk_star          => "STAR"
+        case .tk_bang          => "BANG"
+        case .tk_bang_equal    => "BANG_EQUAL"
+        case .tk_equal         => "EQUAL"
+        case .tk_equal_equal   => "EQUAL_EQUAL"
+        case .tk_greater       => "GREATER"
+        case .tk_greater_equal => "GREATER_EQUAL"
+        case .tk_less          => "LESS"
+        case .tk_less_equal    => "LESS_EQUAL"
+        case .tk_identifier    => "IDENTIFIER"
+        case .tk_string        => "STRING"
+        case .tk_number        => "NUMBER"
+        case .tk_and           => "AND"
+        case .tk_else          => "ELSE"
+        case .tk_false         => "FALSE"
+        case .tk_for           => "FOR"
+        case .tk_if            => "IF"
+        case .tk_nil           => "NIL"
+        case .tk_or            => "OR"
+        case .tk_print         => "PRINT"
+        case .tk_true          => "TRUE"
+        case .tk_var           => "VAR"
+        case .tk_while         => "WHILE"
+        case .tk_eof           => "EOF"
+    }
+}

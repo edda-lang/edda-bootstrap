@@ -1,0 +1,12 @@
+[package]
+name = "edda-mimir-canonical"
+description = "Deterministic canonical encoding for Mímir hash inputs (UTF-8, LF, sorted keys, no floats)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+
+[dev-dependencies]

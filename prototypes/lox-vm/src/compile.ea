@@ -1,0 +1,392 @@
+import std.mem.alloc
+import std.collections.vec
+
+import local.chunk
+import local.lex.lex as lex
+import local.opcode
+import local.value
+import local.compile.core
+import local.compile.infix
+import local.compile.expr
+
+spec std.collections.vec.Vec(core.Local)
+
+function begin_scope(co: mutable core.Compiler) -> () {
+    co.scope_depth = co.scope_depth + 1
+}
+
+
+function end_scope(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: alloc.AllocError, divergence}
+{
+    co.scope_depth = co.scope_depth - 1
+    loop {
+        if Vec_Local.len(co.locals) == 0 { break }
+        let last_idx = Vec_Local.len(co.locals) - 1
+        let last = Vec_Local.at(co.locals, last_idx)
+        if last.depth <= co.scope_depth { break }
+        core.emit_op(co, mutable c, opcode.Op.op_pop, allocator)?
+        let _ = Vec_Local.pop(mutable co.locals)
+    }
+}
+
+
+function add_local(
+    co: mutable core.Compiler,
+    name: [u8],
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: alloc.AllocError, err: core.ParseError, divergence}
+{
+    if Vec_Local.len(co.locals) >= 256 {
+        raise core.ParseError.too_many_locals
+    }
+    let count = Vec_Local.len(co.locals)
+    var i: usize = count
+    loop {
+        if i == 0 { break }
+        i = i - 1
+        let existing = Vec_Local.at(co.locals, i)
+        if existing.depth < co.scope_depth { break }
+        if core.bytes_equal(existing.name, name) {
+            raise core.ParseError.duplicate_local
+        }
+    }
+    let local = core.Local { name: name, depth: -1 }
+    Vec_Local.push(mutable co.locals, local, allocator)?
+}
+
+
+function mark_initialised(co: mutable core.Compiler) -> () {
+    if Vec_Local.len(co.locals) == 0 { return }
+    let last_idx = Vec_Local.len(co.locals) - 1
+    let last = Vec_Local.at(co.locals, last_idx)
+    let updated = core.Local { name: last.name, depth: co.scope_depth }
+    Vec_Local.set_at(mutable co.locals, last_idx, updated)
+}
+
+
+function emit_loop_back(
+    co: core.Compiler,
+    c: mutable chunk.Chunk,
+    target: usize,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: alloc.AllocError, err: chunk.ChunkError}
+{
+    chunk.chunk_emit_loop(mutable c, target, co.previous.line, allocator)?
+}
+
+
+function compile_program(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    loop {
+        if core.check_token(co, lex.TokenKind.tk_eof) { break }
+        declaration(mutable co, mutable c, allocator)?
+    }
+    core.emit_op(co, mutable c, opcode.Op.op_return, allocator)?
+}
+
+
+function declaration(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    if core.match_token(mutable co, lex.TokenKind.tk_var)? {
+        return var_declaration(mutable co, mutable c, allocator)?
+    }
+    return statement(mutable co, mutable c, allocator)?
+}
+
+
+function var_declaration(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    core.consume_token(mutable co, lex.TokenKind.tk_identifier, core.ParseError.expected_identifier)?
+    let name = co.previous.lexeme
+    let line = co.previous.line
+    if co.scope_depth > 0 {
+        add_local(mutable co, name, allocator)?
+    }
+    let global_idx = if co.scope_depth == 0 {
+        let name_str = core.bytes_to_string(name, allocator)?
+        chunk.chunk_add_constant(mutable c, value.value_string(take name_str), allocator)?
+    } else {
+        0 as u8
+    }
+    if core.match_token(mutable co, lex.TokenKind.tk_equal)? {
+        expr.expression(mutable co, mutable c, allocator)?
+    } else {
+        core.emit_op(co, mutable c, opcode.Op.op_nil, allocator)?
+    }
+    core.consume_token(mutable co, lex.TokenKind.tk_semicolon, core.ParseError.expected_semicolon)?
+    if co.scope_depth == 0 {
+        chunk.chunk_emit_op_byte(
+            mutable c,
+            opcode.Op.op_define_global,
+            global_idx,
+            line,
+            allocator,
+        )?
+        return
+    }
+    mark_initialised(mutable co)
+}
+
+
+function statement(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    if core.match_token(mutable co, lex.TokenKind.tk_print)? {
+        return print_statement(mutable co, mutable c, allocator)?
+    }
+    if core.match_token(mutable co, lex.TokenKind.tk_if)? {
+        return if_statement(mutable co, mutable c, allocator)?
+    }
+    if core.match_token(mutable co, lex.TokenKind.tk_while)? {
+        return while_statement(mutable co, mutable c, allocator)?
+    }
+    if core.match_token(mutable co, lex.TokenKind.tk_for)? {
+        return for_statement(mutable co, mutable c, allocator)?
+    }
+    if core.match_token(mutable co, lex.TokenKind.tk_left_brace)? {
+        begin_scope(mutable co)
+        block(mutable co, mutable c, allocator)?
+        end_scope(mutable co, mutable c, allocator)?
+        return
+    }
+    return expression_statement(mutable co, mutable c, allocator)?
+}
+
+
+function expression_statement(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    expr.expression(mutable co, mutable c, allocator)?
+    core.consume_token(mutable co, lex.TokenKind.tk_semicolon, core.ParseError.expected_semicolon)?
+    core.emit_op(co, mutable c, opcode.Op.op_pop, allocator)?
+}
+
+
+function print_statement(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    expr.expression(mutable co, mutable c, allocator)?
+    core.consume_token(mutable co, lex.TokenKind.tk_semicolon, core.ParseError.expected_semicolon)?
+    core.emit_op(co, mutable c, opcode.Op.op_print, allocator)?
+}
+
+
+function block(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    loop {
+        if core.check_token(co, lex.TokenKind.tk_right_brace) { break }
+        if core.check_token(co, lex.TokenKind.tk_eof) { break }
+        declaration(mutable co, mutable c, allocator)?
+    }
+    core.consume_token(mutable co, lex.TokenKind.tk_right_brace, core.ParseError.expected_right_brace)?
+}
+
+
+function if_statement(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    core.consume_token(mutable co, lex.TokenKind.tk_left_paren, core.ParseError.expected_left_paren)?
+    expr.expression(mutable co, mutable c, allocator)?
+    core.consume_token(mutable co, lex.TokenKind.tk_right_paren, core.ParseError.expected_right_paren)?
+    let then_jump = infix.emit_jump(co.previous.line, mutable c, opcode.Op.op_jump_if_false, allocator)?
+    core.emit_op(co, mutable c, opcode.Op.op_pop, allocator)?
+    statement(mutable co, mutable c, allocator)?
+    let else_jump = infix.emit_jump(co.previous.line, mutable c, opcode.Op.op_jump, allocator)?
+    infix.patch_jump(mutable c, then_jump)?
+    core.emit_op(co, mutable c, opcode.Op.op_pop, allocator)?
+    if core.match_token(mutable co, lex.TokenKind.tk_else)? {
+        statement(mutable co, mutable c, allocator)?
+    }
+    infix.patch_jump(mutable c, else_jump)?
+}
+
+
+function while_statement(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    let loop_start = chunk.chunk_code_len(c)
+    core.consume_token(mutable co, lex.TokenKind.tk_left_paren, core.ParseError.expected_left_paren)?
+    expr.expression(mutable co, mutable c, allocator)?
+    core.consume_token(mutable co, lex.TokenKind.tk_right_paren, core.ParseError.expected_right_paren)?
+    let exit_jump = infix.emit_jump(co.previous.line, mutable c, opcode.Op.op_jump_if_false, allocator)?
+    core.emit_op(co, mutable c, opcode.Op.op_pop, allocator)?
+    statement(mutable co, mutable c, allocator)?
+    emit_loop_back(co, mutable c, loop_start, allocator)?
+    infix.patch_jump(mutable c, exit_jump)?
+    core.emit_op(co, mutable c, opcode.Op.op_pop, allocator)?
+}
+
+
+function for_statement(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    begin_scope(mutable co)
+    core.consume_token(mutable co, lex.TokenKind.tk_left_paren, core.ParseError.expected_left_paren)?
+    for_init(mutable co, mutable c, allocator)?
+    let loop_start_initial = chunk.chunk_code_len(c)
+    let (loop_start, exit_jump_opt) = for_condition(mutable co, mutable c, loop_start_initial, allocator)?
+    let (real_loop_start, body_loop_start) = for_increment(mutable co, mutable c, loop_start, allocator)?
+    statement(mutable co, mutable c, allocator)?
+    emit_loop_back(co, mutable c, body_loop_start, allocator)?
+    for_exit(co, mutable c, exit_jump_opt, allocator)?
+    let _ = real_loop_start
+    end_scope(mutable co, mutable c, allocator)?
+}
+
+
+function for_init(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    if core.match_token(mutable co, lex.TokenKind.tk_semicolon)? { return }
+    if core.match_token(mutable co, lex.TokenKind.tk_var)? {
+        return var_declaration(mutable co, mutable c, allocator)?
+    }
+    return expression_statement(mutable co, mutable c, allocator)?
+}
+
+
+function for_condition(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    loop_start_in: usize,
+    allocator: Allocator,
+) -> (usize, ForExitJump)
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    if core.match_token(mutable co, lex.TokenKind.tk_semicolon)? {
+        return (loop_start_in, ForExitJump.fej_none)
+    }
+    expr.expression(mutable co, mutable c, allocator)?
+    core.consume_token(mutable co, lex.TokenKind.tk_semicolon, core.ParseError.expected_semicolon)?
+    let exit = infix.emit_jump(co.previous.line, mutable c, opcode.Op.op_jump_if_false, allocator)?
+    core.emit_op(co, mutable c, opcode.Op.op_pop, allocator)?
+    return (loop_start_in, ForExitJump.fej_some(offset: exit))
+}
+
+
+public type ForExitJump {
+    case fej_none
+    case fej_some(offset: usize)
+}
+
+
+function for_increment(
+    co: mutable core.Compiler,
+    c: mutable chunk.Chunk,
+    loop_start_in: usize,
+    allocator: Allocator,
+) -> (usize, usize)
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    if core.match_token(mutable co, lex.TokenKind.tk_right_paren)? {
+        return (loop_start_in, loop_start_in)
+    }
+    let body_jump = infix.emit_jump(co.previous.line, mutable c, opcode.Op.op_jump, allocator)?
+    let increment_start = chunk.chunk_code_len(c)
+    expr.expression(mutable co, mutable c, allocator)?
+    core.emit_op(co, mutable c, opcode.Op.op_pop, allocator)?
+    core.consume_token(mutable co, lex.TokenKind.tk_right_paren, core.ParseError.expected_right_paren)?
+    emit_loop_back(co, mutable c, loop_start_in, allocator)?
+    infix.patch_jump(mutable c, body_jump)?
+    return (increment_start, increment_start)
+}
+
+
+function for_exit(
+    co: core.Compiler,
+    c: mutable chunk.Chunk,
+    fej: ForExitJump,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: alloc.AllocError, err: chunk.ChunkError}
+{
+    return match fej {
+        case .fej_none           => ()
+        case .fej_some(let off)  => {
+            infix.patch_jump(mutable c, off)?
+            core.emit_op(co, mutable c, opcode.Op.op_pop, allocator)?
+        }
+    }
+}
+
+
+public function compile_source(
+    source: [u8],
+    allocator: mutable Allocator,
+) -> chunk.Chunk
+    with {allocator, err: core.ParseError, err: lex.LexError,
+          err: alloc.AllocError, err: chunk.ChunkError, divergence}
+{
+    var co = core.compiler_new(source, allocator)?
+    var c = chunk.chunk_new(allocator)?
+    compile_program(mutable co, mutable c, allocator)?
+    return c
+}

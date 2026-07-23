@@ -1,0 +1,17 @@
+[package]
+name = "edda-cache"
+description = "BLAKE3 content-addressed store and TOON manifest I/O for .edda/cache/."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+edda-span.workspace = true
+edda-intern.workspace = true
+edda-diag.workspace = true
+blake3 = "1"
+parking_lot = "0.12"
+smol_str = "0.3"
+time = { version = "0.3", features = ["formatting", "parsing", "macros"] }

@@ -1,0 +1,16 @@
+[package]
+name = "edda-mimir-archive"
+description = "Pack and unpack the .rune tar.zst archive format with per-file BLAKE3 verification."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+edda-cache.workspace = true
+tar = "0.4"
+zstd = { version = "0.13", default-features = false }
+
+[dev-dependencies]
+tempfile = "3"

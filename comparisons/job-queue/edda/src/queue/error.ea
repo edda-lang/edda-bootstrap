@@ -1,0 +1,86 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+public type QueueError {
+    
+    
+    
+    
+    case queue_full
+
+    
+    
+    
+    
+    
+    
+    case not_lease_holder
+
+    
+    
+    
+    
+    case lease_expired
+
+    
+    
+    
+    
+    
+    case invalid_priority
+
+    
+    
+    
+    
+    
+    case invalid_dependency
+
+    
+    
+    
+    
+    case unknown_worker
+
+    
+    
+    
+    
+    
+    
+    
+    case audit_event_dropped
+
+    
+    
+    
+    
+    
+    case promotion_rejected
+}

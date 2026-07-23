@@ -1,0 +1,7 @@
+[package]
+name = "fnptr-slice2"
+version = "0.1.0"
+root_namespace = "fnptr_slice2"
+
+[build]
+default_target = "x86-64-windows-msvc"

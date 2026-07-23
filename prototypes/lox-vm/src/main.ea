@@ -1,0 +1,119 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import std.mem.alloc
+import std.io.stream
+
+import local.chunk
+import local.compile
+import local.compile.core
+import local.debug
+import local.lex.lex as lex
+import local.opcode
+import local.vm
+
+
+
+
+
+
+public function script_source() -> String {
+    return "var counter = 0; while (counter < 5) { print counter; counter = counter + 1; } var x = 3; var y = 4; print x * x + y * y; if (x * x + y * y == 25) { print \"pythagorean triple\"; } else { print \"not a triple\"; } print \"hi \" + \"there\"; { var inner = 100; print inner; var doubled = inner * 2; print doubled; } var n = 1; for (var i = 0; i < 4; i = i + 1) { n = n * 2; } print n; print !nil; print true and false; print true or false; print 1 + 2 * 3; print (1 + 2) * 3; print 10 / 4; print 10 - 3 - 2;"
+}
+
+
+
+
+
+
+public function main(
+    out: Stdout,
+    errout: Stderr,
+    allocator: mutable Allocator,
+) -> ()
+    with {out, errout, allocator, divergence}
+{
+    out.print_line("== lox-vm ==")
+    let source = script_source()
+    let source_bytes = source.bytes()
+    handle err: alloc.AllocError -> errout.eprint_line("error: out of memory") {
+        run_pipeline(source_bytes, out, errout, mutable allocator)?
+    }
+}
+
+
+
+
+function run_pipeline(
+    source: [u8],
+    out: Stdout,
+    errout: Stderr,
+    allocator: mutable Allocator,
+) -> ()
+    with {out, errout, allocator, err: alloc.AllocError, divergence}
+{
+    handle err: lex.LexError -> errout.eprint_line("error: lex failure") {
+        handle err: core.ParseError -> errout.eprint_line("error: parse failure") {
+            handle err: chunk.ChunkError -> errout.eprint_line("error: chunk-emit failure") {
+                let program = compile.compile_source(source, mutable allocator)?
+                dump_and_execute(take program, out, errout, mutable allocator)?
+            }
+        }
+    }
+}
+
+
+
+
+function dump_and_execute(
+    program: take chunk.Chunk,
+    out: Stdout,
+    errout: Stderr,
+    allocator: mutable Allocator,
+) -> ()
+    with {out, errout, allocator, err: alloc.AllocError, divergence}
+{
+    handle err: opcode.OpcodeError -> errout.eprint_line("error: unknown opcode in chunk") {
+        debug.disassemble_chunk(out, program, "script", mutable allocator)?
+        out.print_line("")
+        out.print_line("== run ==")
+        run_vm(take program, out, errout, mutable allocator)?
+    }
+}
+
+
+
+
+
+
+
+function run_vm(
+    program: take chunk.Chunk,
+    out: Stdout,
+    errout: Stderr,
+    allocator: mutable Allocator,
+) -> ()
+    with {out, errout, allocator, err: alloc.AllocError, err: opcode.OpcodeError, divergence}
+{
+    var v = vm.vm_new(take program, allocator)?
+    handle err: vm.RuntimeError -> errout.eprint_line("runtime error") {
+        vm.vm_run(mutable v, out, mutable allocator)?
+    }
+}

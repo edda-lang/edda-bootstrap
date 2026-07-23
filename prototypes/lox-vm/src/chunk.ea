@@ -1,0 +1,293 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import std.mem.alloc
+import std.collections.vec
+import local.value
+import local.opcode
+
+spec std.collections.vec.Vec(u8)
+spec std.collections.vec.Vec(u32)
+spec std.collections.vec.Vec(value.Value)
+
+
+
+
+
+public type ChunkError {
+    case too_many_constants
+    case jump_too_long
+}
+
+
+
+
+
+public type Chunk {
+    code: Vec_u8.Vec
+    constants: Vec_Value.Vec
+    lines: Vec_u32.Vec
+}
+
+
+
+
+
+public function chunk_new(allocator: Allocator) -> Chunk
+    with {allocator, err: alloc.AllocError}
+{
+    let code_data      = Vec_u8._alloc_array(allocator, 0)?
+    let constants_data = Vec_Value._alloc_array(allocator, 0)?
+    let lines_data     = Vec_u32._alloc_array(allocator, 0)?
+    return Chunk {
+        code:      Vec_u8.Vec      { capacity: 0, len: 0, data: code_data },
+        constants: Vec_Value.Vec   { capacity: 0, len: 0, data: constants_data },
+        lines:     Vec_u32.Vec     { capacity: 0, len: 0, data: lines_data },
+    }
+}
+
+
+
+public function chunk_code_len(c: Chunk) -> usize {
+    return Vec_u8.len(c.code)
+}
+
+
+
+public function chunk_constant_count(c: Chunk) -> usize {
+    return Vec_Value.len(c.constants)
+}
+
+
+
+
+public function chunk_byte(c: Chunk, i: usize where i < c.code.len) -> u8 {
+    return Vec_u8.at(c.code, i)
+}
+
+
+
+
+public function chunk_line(c: Chunk, i: usize where i < c.lines.len) -> u32 {
+    return Vec_u32.at(c.lines, i)
+}
+
+
+
+
+public function chunk_constant(c: Chunk, i: usize where i < c.constants.len) -> value.Value {
+    return Vec_Value.at(c.constants, i)
+}
+
+
+
+
+
+
+
+
+
+
+public function chunk_write_byte(c: mutable Chunk, b: u8, line: u32, allocator: Allocator) -> ()
+    with {allocator, err: alloc.AllocError}
+{
+    Vec_u8.push(mutable c.code, b, allocator)?
+    Vec_u32.push(mutable c.lines, line, allocator)?
+}
+
+
+
+
+public function chunk_emit_op(
+    c: mutable Chunk,
+    op: opcode.Op,
+    line: u32,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: alloc.AllocError}
+{
+    chunk_write_byte(mutable c, opcode.encode_byte(op), line, allocator)?
+}
+
+
+
+
+public function chunk_emit_op_byte(
+    c: mutable Chunk,
+    op: opcode.Op,
+    arg: u8,
+    line: u32,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: alloc.AllocError}
+{
+    chunk_write_byte(mutable c, opcode.encode_byte(op), line, allocator)?
+    chunk_write_byte(mutable c, arg, line, allocator)?
+}
+
+
+
+
+
+
+public function chunk_add_constant(
+    c: mutable Chunk,
+    v: take value.Value,
+    allocator: Allocator,
+) -> u8
+    with {allocator, err: alloc.AllocError, err: ChunkError}
+{
+    let idx = Vec_Value.len(c.constants)
+    if idx >= 256 {
+        raise ChunkError.too_many_constants
+    }
+    Vec_Value.push(mutable c.constants, take v, allocator)?
+    return idx as u8
+}
+
+
+
+
+
+public function chunk_emit_constant(
+    c: mutable Chunk,
+    v: take value.Value,
+    line: u32,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: alloc.AllocError, err: ChunkError}
+{
+    let idx = chunk_add_constant(mutable c, take v, allocator)?
+    chunk_emit_op_byte(mutable c, opcode.Op.op_constant, idx, line, allocator)?
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+public function chunk_emit_jump(
+    c: mutable Chunk,
+    op: opcode.Op,
+    line: u32,
+    allocator: Allocator,
+) -> usize
+    with {allocator, err: alloc.AllocError}
+{
+    chunk_emit_op(mutable c, op, line, allocator)?
+    let placeholder_offset = Vec_u8.len(c.code)
+    chunk_write_byte(mutable c, 255, line, allocator)?
+    chunk_write_byte(mutable c, 255, line, allocator)?
+    return placeholder_offset
+}
+
+
+
+
+
+
+
+
+public function chunk_patch_jump(
+    c: mutable Chunk,
+    offset: usize where offset + 2 <= c.code.len,
+) -> ()
+    with {err: ChunkError}
+{
+    let here: usize = Vec_u8.len(c.code)
+    let two: usize = 2
+    let distance: usize = here - (offset + two)
+    let limit: usize = 65535
+    if distance > limit {
+        raise ChunkError.jump_too_long
+    }
+    let div: usize = 256
+    let hi: u8 = (distance / div) as u8
+    let lo: u8 = (distance % div) as u8
+    let one: usize = 1
+    Vec_u8.set_at(mutable c.code, offset, hi)
+    Vec_u8.set_at(mutable c.code, offset + one, lo)
+}
+
+
+
+
+
+
+
+public function chunk_emit_loop(
+    c: mutable Chunk,
+    target: usize,
+    line: u32,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: alloc.AllocError, err: ChunkError}
+{
+    chunk_emit_op(mutable c, opcode.Op.op_loop_back, line, allocator)?
+    let two: usize = 2
+    let after: usize = Vec_u8.len(c.code) + two
+    if after < target {
+        raise ChunkError.jump_too_long
+    }
+    let distance: usize = after - target
+    let limit: usize = 65535
+    if distance > limit {
+        raise ChunkError.jump_too_long
+    }
+    let div: usize = 256
+    let hi: u8 = (distance / div) as u8
+    let lo: u8 = (distance % div) as u8
+    chunk_write_byte(mutable c, hi, line, allocator)?
+    chunk_write_byte(mutable c, lo, line, allocator)?
+}
+
+
+
+
+
+
+
+public function chunk_read_u16(c: Chunk, at: usize where at + 2 <= c.code.len) -> u16 {
+    let hi = Vec_u8.at(c.code, at) as u16
+    let lo = Vec_u8.at(c.code, at + 1) as u16
+    return hi * 256 + lo
+}

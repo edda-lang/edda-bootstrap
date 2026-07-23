@@ -1,0 +1,111 @@
+
+
+
+
+
+
+
+import std.mem.alloc
+import std.collections.hashmap
+import std.io.stream
+import local.lex
+import local.parse
+import local.eval
+
+spec std.collections.hashmap.StringMap(f64)
+
+
+
+
+public let SIZEOF_EXPR: usize = comptime size_of(parse.Expr)
+
+
+
+function strip_newline(b: [u8]) -> [u8] {
+    let n = b.len()
+    if n >= 2 {
+        if b[n - 2] == 13 && b[n - 1] == 10 {
+            return b[..(n - 2)]
+        }
+    }
+    if n >= 1 {
+        if b[n - 1] == 10 {
+            return b[..(n - 1)]
+        }
+    }
+    return b
+}
+
+
+function is_quit(b: [u8]) -> bool {
+    if b.len() != 4 { return false }
+    let b0 = b[0]
+    let b1 = b[1]
+    let b2 = b[2]
+    let b3 = b[3]
+    if b0 == 113 && b1 == 117 && b2 == 105 && b3 == 116 { return true }
+    if b0 == 101 && b1 == 120 && b2 == 105 && b3 == 116 { return true }
+    return false
+}
+
+
+
+
+
+function process_line(
+    line: [u8],
+    env: mutable StringMap_f64,
+    allocator: mutable Allocator,
+    out: Stdout,
+) -> ()
+    with {out, allocator, divergence}
+{
+    handle err: lex.LexError -> out.print_line("error: invalid token") {
+        handle err: parse.ParseError -> out.print_line("error: malformed expression") {
+            handle err: eval.EvalError -> out.print_line("error: evaluation failed") {
+                handle err: alloc.AllocError -> out.print_line("error: out of memory") {
+                    let (expr, _) = parse.parse_expr(line, 0, allocator)?
+                    let value = eval.eval(take expr, mutable env, mutable allocator)?
+                    out.print_line(f"= {value}")
+                }
+            }
+        }
+    }
+}
+
+
+
+
+
+public function main(
+    stdin: Stdin,
+    out: Stdout,
+    allocator: mutable Allocator,
+) -> ()
+    with {stdin, out, allocator, divergence}
+{
+    out.print_line("mini-lisp REPL — examples:")
+    out.print_line("  (+ 1 2)")
+    out.print_line("  (* 3 (- 7 4))")
+    out.print_line("  (let x 5 (+ x 2))")
+    out.print_line("type quit to exit")
+    
+    
+    
+    var env = handle err: alloc.AllocError -> {
+        out.print_line("error: out of memory while allocating the env table")
+        return
+    } {
+        StringMap_f64.new(allocator)?
+    }
+    loop {
+        out.print("> ")
+        let line = handle err: std.io.stream.IoError -> (break) {
+            stdin.read_line()?
+        }
+        let raw = strip_newline(line.bytes())
+        if is_quit(raw) { break }
+        if raw.len() == 0 { continue }
+        process_line(raw, mutable env, mutable allocator, out)
+    }
+}

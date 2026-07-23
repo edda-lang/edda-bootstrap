@@ -1,0 +1,358 @@
+
+
+
+
+
+
+
+
+
+import std.mem.alloc
+import local.assert.assert
+import local.clock.clock
+import local.queue.queue.queue
+import local.queue.error as queue_error
+import local.test.support as test_support
+
+
+
+
+
+
+public function s01(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let outcome = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    assert.assert_true(
+        match outcome {
+            case .none => true
+            case .some(_) => false
+        },
+        "s01: empty acquire returned .some",
+    )?
+}
+
+
+public function s02(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue(mutable q, "hello", allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let outcome = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    return match outcome {
+        case .none => assert.assert_true(false, "s02: acquire returned .none")?
+        case .some(let acquired) => {
+            assert.assert_eq_u64(acquired.job_id, id, "s02: acquired wrong id")?
+            assert.assert_eq_u32(acquired.attempt, 1, "s02: first acquire attempt should be 1")?
+        }
+    }
+}
+
+
+
+public function s03(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let _ = queue.enqueue(mutable q, "x", allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    assert.assert_eq_usize(queue.active_len(q), 1, "s03: pre-acquire active_len")?
+    let _ = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    assert.assert_eq_usize(queue.active_len(q), 0, "s03: post-acquire active_len")?
+    assert.assert_eq_usize(queue.leased_len(q), 1, "s03: post-acquire leased_len")?
+}
+
+
+
+public function s04(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue(mutable q, "x", allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let _ = queue.acquire(mutable q, 7, 1_000_000_000, clk, allocator)?
+    queue.complete(mutable q, 7, id)?
+    assert.assert_eq_usize(queue.leased_len(q), 0, "s04: leased should be empty after complete")?
+    assert.assert_eq_usize(queue.active_len(q), 0, "s04: active should remain empty")?
+}
+
+
+public function s05(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError}
+{
+    var q: queue.JobQueue = queue.new(test_support.tight_cfg(2, 5), 1, allocator)?
+    var raised: bool = false
+    handle err: queue_error.QueueError -> { raised = true } {
+        let _ = test_support.enqueue_n(mutable q, 3, allocator)?
+    }
+    assert.assert_true(raised, "s05: third enqueue should raise queue_full")?
+    assert.assert_eq_usize(queue.active_len(q), 2, "s05: active_len at capacity")?
+}
+
+
+
+
+
+
+public function s06(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue(mutable q, "x", allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let first = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    let second = queue.acquire(mutable q, 2, 1_000_000_000, clk, allocator)?
+    let first_ok: bool = match first {
+        case .some(let a) => a.job_id == id
+        case .none => false
+    }
+    assert.assert_true(first_ok, "s06: first acquire should succeed")?
+    assert.assert_true(
+        match second {
+            case .none => true
+            case .some(_) => false
+        },
+        "s06: second acquire should return .none",
+    )?
+}
+
+
+
+public function s07(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let _ = queue.enqueue(mutable q, "x", allocator)?
+    var clk: clock.LogicalClock = clock.new()
+    let _ = queue.acquire(mutable q, 1, 1_000_000, clk, allocator)?
+    clock.advance(mutable clk, 2_000_000)
+    let second = queue.acquire(mutable q, 2, 1_000_000, clk, allocator)?
+    assert.assert_true(
+        match second {
+            case .some(_) => true
+            case .none => false
+        },
+        "s07: post-expiry acquire should succeed",
+    )?
+}
+
+
+public function s08(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue(mutable q, "x", allocator)?
+    var clk: clock.LogicalClock = clock.new()
+    let _ = queue.acquire(mutable q, 1, 1_000_000, clk, allocator)?
+    clock.advance(mutable clk, 500_000)
+    queue.heartbeat(mutable q, 1, id, 1_000_000, clk, allocator)?
+    clock.advance(mutable clk, 800_000)
+    let outcome = queue.acquire(mutable q, 2, 1_000_000, clk, allocator)?
+    assert.assert_true(
+        match outcome {
+            case .none => true
+            case .some(_) => false
+        },
+        "s08: heartbeat should hold the lease",
+    )?
+}
+
+
+
+public function s09(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue(mutable q, "x", allocator)?
+    var clk: clock.LogicalClock = clock.new()
+    let _ = queue.acquire(mutable q, 1, 1_000_000, clk, allocator)?
+    clock.advance(mutable clk, 2_000_000)
+    var raised: bool = false
+    handle err: queue_error.QueueError -> { raised = true } {
+        queue.heartbeat(mutable q, 1, id, 1_000_000, clk, allocator)?
+    }
+    assert.assert_true(raised, "s09: heartbeat after expiry should raise")?
+    assert.assert_eq_usize(queue.leased_len(q), 0, "s09: no lease should remain")?
+    assert.assert_eq_usize(queue.active_len(q), 1, "s09: job should be back in active")?
+}
+
+
+public function s10(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue(mutable q, "x", allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let _ = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    var raised: bool = false
+    handle err: queue_error.QueueError -> { raised = true } {
+        queue.complete(mutable q, 2, id)?
+    }
+    assert.assert_true(raised, "s10: non-holder complete should raise")?
+}
+
+
+public function s11(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue(mutable q, "x", allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let _ = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    var raised: bool = false
+    handle err: queue_error.QueueError -> { raised = true } {
+        queue.fail(mutable q, 2, id, "from-non-holder", clk, allocator)?
+    }
+    assert.assert_true(raised, "s11: non-holder fail should raise")?
+}
+
+
+public function s12(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue(mutable q, "x", allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let _ = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    var raised: bool = false
+    handle err: queue_error.QueueError -> { raised = true } {
+        queue.heartbeat(mutable q, 2, id, 1_000_000, clk, allocator)?
+    }
+    assert.assert_true(raised, "s12: non-holder heartbeat should raise")?
+}
+
+
+
+
+
+
+
+public function s13(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue(mutable q, "x", allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let _ = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    queue.fail(mutable q, 1, id, "transient", clk, allocator)?
+    let immediate = queue.acquire(mutable q, 2, 1_000_000_000, clk, allocator)?
+    assert.assert_true(
+        match immediate {
+            case .none => true
+            case .some(_) => false
+        },
+        "s13: failed job should not be immediately available",
+    )?
+}
+
+
+
+public function s14(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue(mutable q, "x", allocator)?
+    var clk: clock.LogicalClock = clock.new()
+    let _ = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    queue.fail(mutable q, 1, id, "transient", clk, allocator)?
+    clock.advance(mutable clk, 1_000_000_000)
+    let retried = queue.acquire(mutable q, 2, 1_000_000_000, clk, allocator)?
+    return match retried {
+        case .none => assert.assert_true(false, "s14: should have re-acquired after backoff")?
+        case .some(let a) => {
+            assert.assert_eq_u64(a.job_id, id, "s14: re-acquired wrong id")?
+            assert.assert_eq_u32(a.attempt, 2, "s14: re-acquire attempt should be 2")?
+        }
+    }
+}
+
+
+
+public function s15(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue(mutable q, "x", allocator)?
+    var clk: clock.LogicalClock = clock.new()
+    let limit: usize = 3
+    var i: usize = 0
+    loop
+        decreases limit - i
+    {
+        if i >= limit { break }
+        let _ = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+        queue.fail(mutable q, 1, id, "transient", clk, allocator)?
+        clock.advance(mutable clk, 60_000_000_000)
+        i = i + 1
+    }
+    assert.assert_eq_usize(queue.dead_letter_len(q), 1, "s15: dead-letter should hold the job")?
+    assert.assert_eq_usize(queue.active_len(q), 0, "s15: active should be empty")?
+    let post = queue.acquire(mutable q, 2, 1_000_000_000, clk, allocator)?
+    assert.assert_true(
+        match post {
+            case .none => true
+            case .some(_) => false
+        },
+        "s15: dead-lettered job must not re-acquire",
+    )?
+}
+
+
+
+public function s16(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue(mutable q, "x", allocator)?
+    var clk: clock.LogicalClock = clock.new()
+    let _ = queue.acquire(mutable q, 1, 1_000_000, clk, allocator)?
+    clock.advance(mutable clk, 2_000_000)
+    let retried = queue.acquire(mutable q, 2, 1_000_000_000, clk, allocator)?
+    return match retried {
+        case .none => assert.assert_true(false, "s16: should re-acquire after lease expiry")?
+        case .some(let a) => {
+            assert.assert_eq_u64(a.job_id, id, "s16: re-acquired wrong id")?
+            assert.assert_eq_u32(a.attempt, 1, "s16: lease expiry must not increment attempt")?
+        }
+    }
+}
+
+
+
+
+
+
+
+
+
+public function s17(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.jittered_cfg(250_000), 17, allocator)?
+    let id: u64 = queue.enqueue(mutable q, "x", allocator)?
+    var clk: clock.LogicalClock = clock.new()
+
+    let _ = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    queue.fail(mutable q, 1, id, "r1", clk, allocator)?
+    
+    
+    
+    clock.advance(mutable clk, 125_000_000)
+    let after_first = queue.acquire(mutable q, 2, 1_000_000_000, clk, allocator)?
+    return match after_first {
+        case .none => assert.assert_true(false, "s17: first retry should be available")?
+        case .some(let a1) => {
+            assert.assert_eq_u32(a1.attempt, 2, "s17: first retry attempt count")?
+            queue.fail(mutable q, 2, id, "r2", clk, allocator)?
+            clock.advance(mutable clk, 250_000_000)
+            let after_second = queue.acquire(mutable q, 3, 1_000_000_000, clk, allocator)?
+            return match after_second {
+                case .none => assert.assert_true(false, "s17: second retry should be available")?
+                case .some(let a2) => assert.assert_eq_u32(a2.attempt, 3, "s17: second retry attempt count")?
+            }
+        }
+    }
+}

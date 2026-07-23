@@ -1,0 +1,37 @@
+[package]
+name = "edda-driver"
+description = "Build orchestrator; library form of `edda build` and `edda check`."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+edda-span.workspace = true
+edda-diag.workspace = true
+edda-intern.workspace = true
+edda-syntax.workspace = true
+edda-resolve.workspace = true
+edda-types = { workspace = true, features = ["refine"] }
+edda-refine = { workspace = true, features = ["refine"] }
+edda-comptime.workspace = true
+edda-codegen.workspace = true
+edda-mir.workspace = true
+edda-compile = { workspace = true, features = ["llvm"] }
+edda-link.workspace = true
+edda-cache.workspace = true
+edda-manifest.workspace = true
+edda-mimir-archive.workspace = true
+edda-mimir-canonical.workspace = true
+edda-mimir-crypto.workspace = true
+edda-mimir-hash.workspace = true
+edda-mimir-registry.workspace = true
+edda-target.workspace = true
+edda-structmap.workspace = true
+time = "0.3"
+smol_str = "0.3"
+
+[dev-dependencies]
+tempfile = "3"
+serde_json = "1"

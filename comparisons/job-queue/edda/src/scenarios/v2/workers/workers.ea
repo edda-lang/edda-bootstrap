@@ -1,0 +1,189 @@
+
+
+import std.mem.alloc
+import local.assert.assert
+import local.clock.clock
+import local.queue.queue.queue
+import local.queue.snapshot.snapshot
+import local.queue.error as queue_error
+import local.test.support as test_support
+
+
+public function s116(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let caps: [String] = test_support.one_str("alpha", allocator)?
+    queue.register_worker(mutable q, 1, caps, clk, allocator)?
+    let workers = queue.list_workers(q, allocator)?
+    assert.assert_eq_usize(workers.len(), 1, "s116: one worker listed")?
+    let _ = queue.enqueue(mutable q, "x", allocator)?
+    let outcome = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    return match outcome {
+        case .some(_) => assert.assert_true(true, "s116: registered worker acquires")?
+        case .none => assert.assert_true(false, "s116: registered worker must acquire")?
+    }
+}
+
+
+
+
+
+public function s117(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let caps: [String] = test_support.empty_str(allocator)?
+    queue.register_worker(mutable q, 1, caps, clk, allocator)?
+    var raised: bool = false
+    handle err: queue_error.QueueError -> { raised = true } {
+        queue.verify_worker(q, 99)?
+    }
+    assert.assert_true(raised, "s117: verify_worker on unknown id raises")?
+    let _ = queue.enqueue(mutable q, "x", allocator)?
+    let outcome = queue.acquire(mutable q, 99, 1_000_000_000, clk, allocator)?
+    assert.assert_true(
+        match outcome {
+            case .none => true
+            case .some(_) => false
+        },
+        "s117: acquire by unknown worker yields .none in strict mode",
+    )?
+}
+
+
+public function s118(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    let required: [String] = test_support.one_str("ssh", allocator)?
+    let worker_caps: [String] = test_support.two_str("ssh", "ssh-keygen", allocator)?
+    queue.register_worker(mutable q, 1, worker_caps, clk, allocator)?
+    let _ = queue.enqueue_full2(mutable q, "job", 5, 0, "default", no_deps, required, allocator)?
+    let outcome = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    return match outcome {
+        case .none => assert.assert_true(false, "s118: superset worker must acquire")?
+        case .some(_) => assert.assert_true(true, "s118: superset match")?
+    }
+}
+
+
+public function s119(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    let required: [String] = test_support.one_str("ssh", allocator)?
+    let worker_caps: [String] = test_support.one_str("http", allocator)?
+    queue.register_worker(mutable q, 1, worker_caps, clk, allocator)?
+    let _ = queue.enqueue_full2(mutable q, "job", 5, 0, "default", no_deps, required, allocator)?
+    let outcome = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    assert.assert_true(
+        match outcome {
+            case .none => true
+            case .some(_) => false
+        },
+        "s119: shortfall worker yields .none",
+    )?
+}
+
+
+
+public function s120(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let caps: [String] = test_support.empty_str(allocator)?
+    queue.register_worker(mutable q, 7, caps, clk, allocator)?
+    let _ = queue.enqueue(mutable q, "a", allocator)?
+    let _ = queue.enqueue(mutable q, "b", allocator)?
+    let first = queue.acquire(mutable q, 7, 1_000_000_000, clk, allocator)?
+    let second = queue.acquire(mutable q, 7, 1_000_000_000, clk, allocator)?
+    let attempt_first: u32 = match first {
+        case .some(let a) => a.attempt
+        case .none => 0
+    }
+    let attempt_second: u32 = match second {
+        case .some(let a) => a.attempt
+        case .none => 0
+    }
+    let _ = attempt_first
+    let _ = attempt_second
+    let returned: usize = queue.deregister_worker(mutable q, 7, clk, allocator)?
+    assert.assert_eq_usize(returned, 2, "s120: deregister returned 2 leases")?
+    assert.assert_eq_usize(queue.active_len(q), 2, "s120: both jobs back in active")?
+    assert.assert_eq_usize(queue.leased_len(q), 0, "s120: no leases held")?
+    
+    queue.register_worker(mutable q, 8, caps, clk, allocator)?
+    let re = queue.acquire(mutable q, 8, 1_000_000_000, clk, allocator)?
+    return match re {
+        case .none => assert.assert_true(false, "s120: re-acquire should succeed")?
+        case .some(let a) => assert.assert_eq_u32(a.attempt, 1, "s120: attempt unchanged across lease force-expire")?
+    }
+}
+
+
+public function s121(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let initial: [String] = test_support.one_str("alpha", allocator)?
+    queue.register_worker(mutable q, 1, initial, clk, allocator)?
+    let updated: [String] = test_support.one_str("beta", allocator)?
+    queue.register_worker(mutable q, 1, updated, clk, allocator)?
+    let workers = queue.list_workers(q, allocator)?
+    assert.assert_eq_usize(workers.len(), 1, "s121: still one worker after re-register")?
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    let needs_alpha: [String] = test_support.one_str("alpha", allocator)?
+    let _ = queue.enqueue_full2(mutable q, "needs-alpha", 5, 0, "default", no_deps, needs_alpha, allocator)?
+    let outcome = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    assert.assert_true(
+        match outcome {
+            case .none => true
+            case .some(_) => false
+        },
+        "s121: alpha-needing job not acquirable by worker now holding beta",
+    )?
+}
+
+
+public function s122(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let caps: [String] = test_support.two_str("ssh", "http", allocator)?
+    queue.register_worker(mutable q, 1, caps, clk, allocator)?
+    let snap: snapshot.Snapshot = snapshot.take_snapshot(q, allocator)?
+    let restored: queue.JobQueue = snapshot.restore(snap, allocator)?
+    let workers = queue.list_workers(restored, allocator)?
+    assert.assert_eq_usize(workers.len(), 1, "s122: worker survives restart")?
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    let needs_ssh: [String] = test_support.one_str("ssh", allocator)?
+    var rq: queue.JobQueue = restored
+    let _ = queue.enqueue_full2(mutable rq, "ssh-job", 5, 0, "default", no_deps, needs_ssh, allocator)?
+    let outcome = queue.acquire(mutable rq, 1, 1_000_000_000, clk, allocator)?
+    return match outcome {
+        case .none => assert.assert_true(false, "s122: post-restore worker capabilities work")?
+        case .some(_) => assert.assert_true(true, "s122: worker capabilities restored intact")?
+    }
+}
+
+
+public function s123(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let returned: usize = queue.deregister_worker(mutable q, 42, clk, allocator)?
+    assert.assert_eq_usize(returned, 0, "s123: no leases force-expired")?
+    let workers = queue.list_workers(q, allocator)?
+    assert.assert_eq_usize(workers.len(), 0, "s123: registry still empty")?
+}

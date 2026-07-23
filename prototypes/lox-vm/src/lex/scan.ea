@@ -1,0 +1,92 @@
+import local.lex.lex as lex
+
+public function scan_token(s: mutable lex.Scanner) -> lex.Token
+    with {err: lex.LexError, divergence}
+{
+    lex.skip_whitespace(mutable s)?
+    s.start = s.current
+    if lex.scanner_at_end(s) {
+        return lex.make_token(s, lex.TokenKind.tk_eof)
+    }
+    let b = lex.advance_byte(mutable s)
+    if lex.is_alpha(b) {
+        return lex.scan_identifier(mutable s)
+    }
+    if lex.is_digit(b) {
+        return lex.scan_number(mutable s)
+    }
+    return scan_punctuation(mutable s, b)?
+}
+
+
+public function match_byte(s: mutable lex.Scanner, expected: u8) -> bool {
+    if s.current >= s.source.len() { return false }
+    if s.source[s.current] != expected { return false }
+    s.current = s.current + 1
+    return true
+}
+
+
+function scan_string(s: mutable lex.Scanner) -> lex.Token
+    with {err: lex.LexError, divergence}
+{
+    loop {
+        if lex.scanner_at_end(s) {
+            raise lex.LexError.unterminated_string
+        }
+        let b = lex.peek(s)
+        if b == 34 {
+            let _ = lex.advance_byte(mutable s)
+            return lex.make_token(s, lex.TokenKind.tk_string)
+        }
+        if b == 10 {
+            s.line = s.line + 1
+        }
+        let _ = lex.advance_byte(mutable s)
+    }
+}
+
+
+public function scan_punctuation(s: mutable lex.Scanner, first: u8) -> lex.Token
+    with {err: lex.LexError, divergence}
+{
+    if first == 40 { return lex.make_token(s, lex.TokenKind.tk_left_paren) }
+    if first == 41 { return lex.make_token(s, lex.TokenKind.tk_right_paren) }
+    if first == 123 { return lex.make_token(s, lex.TokenKind.tk_left_brace) }
+    if first == 125 { return lex.make_token(s, lex.TokenKind.tk_right_brace) }
+    if first == 44 { return lex.make_token(s, lex.TokenKind.tk_comma) }
+    if first == 46 { return lex.make_token(s, lex.TokenKind.tk_dot) }
+    if first == 45 { return lex.make_token(s, lex.TokenKind.tk_minus) }
+    if first == 43 { return lex.make_token(s, lex.TokenKind.tk_plus) }
+    if first == 59 { return lex.make_token(s, lex.TokenKind.tk_semicolon) }
+    if first == 42 { return lex.make_token(s, lex.TokenKind.tk_star) }
+    if first == 47 { return lex.make_token(s, lex.TokenKind.tk_slash) }
+    if first == 33 {
+        if match_byte(mutable s, 61) {
+            return lex.make_token(s, lex.TokenKind.tk_bang_equal)
+        }
+        return lex.make_token(s, lex.TokenKind.tk_bang)
+    }
+    if first == 61 {
+        if match_byte(mutable s, 61) {
+            return lex.make_token(s, lex.TokenKind.tk_equal_equal)
+        }
+        return lex.make_token(s, lex.TokenKind.tk_equal)
+    }
+    if first == 60 {
+        if match_byte(mutable s, 61) {
+            return lex.make_token(s, lex.TokenKind.tk_less_equal)
+        }
+        return lex.make_token(s, lex.TokenKind.tk_less)
+    }
+    if first == 62 {
+        if match_byte(mutable s, 61) {
+            return lex.make_token(s, lex.TokenKind.tk_greater_equal)
+        }
+        return lex.make_token(s, lex.TokenKind.tk_greater)
+    }
+    if first == 34 {
+        return scan_string(mutable s)?
+    }
+    raise lex.LexError.unexpected_char(b: first)
+}

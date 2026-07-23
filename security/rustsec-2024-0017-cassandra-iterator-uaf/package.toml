@@ -1,0 +1,7 @@
+[package]
+name = "rustsec-2024-0017-cassandra-iterator-uaf"
+version = "0.1.0"
+root_namespace = "rustsec_2024_0017_cassandra_iterator_uaf"
+
+[build]
+default_target = "x86-64-windows-msvc"

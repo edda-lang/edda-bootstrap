@@ -1,0 +1,64 @@
+
+
+
+
+
+
+
+
+
+
+
+public type AssertError {
+    case failed(label: String),
+}
+
+
+public function assert_true(condition: bool, label: String) -> ()
+    with {err: AssertError}
+{
+    if !condition {
+        raise AssertError.failed(label: label)
+    }
+}
+
+
+
+
+public function assert_eq_u64(actual: u64, expected: u64, label: String) -> ()
+    with {err: AssertError}
+{
+    if actual != expected {
+        raise AssertError.failed(label: label)
+    }
+}
+
+
+public function assert_eq_usize(actual: usize, expected: usize, label: String) -> ()
+    with {err: AssertError}
+{
+    if actual != expected {
+        raise AssertError.failed(label: label)
+    }
+}
+
+
+public function assert_eq_u32(actual: u32, expected: u32, label: String) -> ()
+    with {err: AssertError}
+{
+    if actual != expected {
+        raise AssertError.failed(label: label)
+    }
+}
+
+
+public function assert_in_range_i64(value: i64, lo: i64, hi: i64, label: String) -> ()
+    with {err: AssertError}
+{
+    if value < lo {
+        raise AssertError.failed(label: label)
+    }
+    if value > hi {
+        raise AssertError.failed(label: label)
+    }
+}

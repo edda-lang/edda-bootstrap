@@ -1,0 +1,197 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import local.job.job
+
+
+
+
+
+
+
+public type Jitter {
+    state: u64 where state != 0,
+}
+
+
+
+public stable function seed_jitter(seed: u64 where seed != 0) -> Jitter {
+    return Jitter { state: seed }
+}
+
+
+
+public stable function next_u64(j: mutable Jitter) -> u64 {
+    var x: u64 = j.state
+    x = x ^ (x << 13)
+    x = x ^ (x >> 7)
+    x = x ^ (x << 17)
+    if x == 0 {
+        x = 1
+    }
+    j.state = x
+    return x
+}
+
+
+
+
+
+public stable function next_in_range(
+    j: mutable Jitter,
+    bound: u64 where bound > 0,
+) -> u64
+    ensures result < bound
+{
+    if bound == 1 {
+        return 0
+    }
+    let mask: u64 = bitmask_for(bound)
+    var budget: u32 = 64
+    loop
+        decreases budget
+    {
+        if budget == 0 { return 0 }
+        let raw: u64 = next_u64(mutable j)
+        let candidate: u64 = raw & mask
+        if candidate < bound {
+            return candidate
+        }
+        budget = budget - 1
+    }
+    return 0
+}
+
+
+
+
+
+stable function bitmask_for(bound: u64 where bound > 1) -> u64
+    ensures result >= bound - 1
+{
+    var m: u64 = 1
+    var budget: u32 = 64
+    loop
+        decreases budget
+    {
+        if budget == 0 { return m }
+        if m >= bound - 1 { return m }
+        m = (m << 1) | 1
+        budget = budget - 1
+    }
+    return m
+}
+
+
+
+
+
+
+
+
+
+public stable function exponential_delay(
+    base_nanos: i64 where base_nanos > 0,
+    cap_nanos: i64 where cap_nanos >= base_nanos,
+    attempt: u32 where attempt >= 1,
+) -> i64
+    ensures result >= base_nanos
+    ensures result <= cap_nanos
+    ensures result >= 0
+{
+    var delay: i64 = base_nanos
+    var i: u32 = 1
+    loop
+        decreases attempt - i
+    {
+        if i >= attempt { break }
+        if delay >= cap_nanos {
+            delay = cap_nanos
+            break
+        }
+        if delay > cap_nanos / 2 {
+            delay = cap_nanos
+            break
+        }
+        delay = delay + delay
+        i = i + 1
+    }
+    return delay
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+public stable function apply_jitter(
+    delay: i64,
+    cap_nanos: i64,
+    jitter_per_million: u32 where jitter_per_million <= 1_000_000,
+    j: mutable Jitter,
+) -> i64
+    ensures result >= delay
+{
+    if delay <= 0 { return delay }
+    if jitter_per_million == 0 { return delay }
+    if cap_nanos <= 0 { return delay }
+    let scale: i64 = jitter_per_million as i64
+    let safe_delay: i64 = if delay > cap_nanos { cap_nanos } else { delay }
+    let span: i64 = (safe_delay * scale) / 1_000_000
+    if span <= 0 { return delay }
+    let bound: u64 = (span as u64) + 1
+    let extra_u: u64 = next_in_range(mutable j, bound)
+    let extra: i64 = extra_u as i64
+    return delay + extra
+}
+
+
+
+
+
+public stable function compute_backoff(
+    cfg: job.QueueConfig,
+    attempt_before_increment: u32 where attempt_before_increment >= 1,
+    j: mutable Jitter,
+) -> i64
+    ensures result >= cfg.backoff_base_nanos
+{
+    let raw: i64 = exponential_delay(
+        cfg.backoff_base_nanos,
+        cfg.backoff_cap_nanos,
+        attempt_before_increment,
+    )
+    return apply_jitter(
+        raw,
+        cfg.backoff_cap_nanos,
+        cfg.jitter_fraction_per_million,
+        mutable j,
+    )
+}

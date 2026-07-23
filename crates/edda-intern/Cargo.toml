@@ -1,0 +1,12 @@
+[package]
+name = "edda-intern"
+description = "String interning and Symbol handles."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+ahash = "0.8"
+parking_lot = "0.12"

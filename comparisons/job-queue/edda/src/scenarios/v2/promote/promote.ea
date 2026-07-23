@@ -1,0 +1,109 @@
+
+
+import std.mem.alloc
+import local.assert.assert
+import local.audit
+import local.clock.clock
+import local.queue.queue.queue
+import local.queue.error as queue_error
+import local.test.support as test_support
+
+
+
+public function s156(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let low_id: u64 = queue.enqueue_full(mutable q, "low", 2, 0, allocator)?
+    let other: u64 = queue.enqueue_full(mutable q, "other", 5, 0, allocator)?
+    let _ = other
+    let clk: clock.LogicalClock = clock.new()
+    queue.promote(mutable q, low_id, 9, clk, allocator)?
+    let outcome = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    return match outcome {
+        case .none => assert.assert_true(false, "s156: acquire after promote must succeed")?
+        case .some(let a) => {
+            assert.assert_eq_u64(a.job_id, low_id, "s156: promoted job acquired first")?
+            assert.assert_eq_u32(a.priority, 9, "s156: new priority surfaces")?
+        }
+    }
+}
+
+
+public function s157(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue_full(mutable q, "p5", 5, 0, allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    var equal_raised: bool = false
+    handle err: queue_error.QueueError -> { equal_raised = true } {
+        queue.promote(mutable q, id, 5, clk, allocator)?
+    }
+    assert.assert_true(equal_raised, "s157: equal priority rejected")?
+    var lower_raised: bool = false
+    handle err: queue_error.QueueError -> { lower_raised = true } {
+        queue.promote(mutable q, id, 3, clk, allocator)?
+    }
+    assert.assert_true(lower_raised, "s157: lower priority rejected")?
+}
+
+
+public function s158(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue(mutable q, "x", allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let _ = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    var raised: bool = false
+    handle err: queue_error.QueueError -> { raised = true } {
+        queue.promote(mutable q, id, 9, clk, allocator)?
+    }
+    assert.assert_true(raised, "s158: promote leased job rejected")?
+}
+
+
+public function s159(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue_full(mutable q, "scheduled", 3, 1_000_000_000, allocator)?
+    var clk: clock.LogicalClock = clock.new()
+    queue.promote(mutable q, id, 8, clk, allocator)?
+    clock.advance(mutable clk, 1_500_000_000)
+    let outcome = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    return match outcome {
+        case .none => assert.assert_true(false, "s159: scheduled job must be acquirable after schedule")?
+        case .some(let a) => assert.assert_eq_u32(a.priority, 8, "s159: promoted priority applies")?
+    }
+}
+
+
+public function s160(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue_full(mutable q, "x", 2, 0, allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    queue.promote(mutable q, id, 7, clk, allocator)?
+    let m = queue.metrics_snapshot(q)
+    assert.assert_eq_u64(m.promoted_total, 1, "s160: promoted_total bumped")?
+    
+    var found: bool = false
+    let n: usize = queue.audit_len(q)
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        let e: audit.AuditEvent = queue.audit_at(q, i)
+        let is_promoted: bool = match e.kind {
+            case .promoted => true
+            case _ => false
+        }
+        if is_promoted { found = true }
+        i = i + 1
+    }
+    assert.assert_true(found, "s160: Promoted audit event present")?
+}

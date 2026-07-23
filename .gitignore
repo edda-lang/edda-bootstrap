@@ -1,0 +1,47 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+
+# Edda build state — if the bootstrap compiler is ever run inside this repo
+.edda/
+# Edda structure-map artifact emitted by `edda build` runs in-tree
+index.toon
+
+# Local Edda source checkouts read by in-tree tooling (e.g. `cargo xtask
+# corpus-check`). Not tracked here — ignoring them keeps
+# `git status --porcelain` clean so build.rs never bakes a false (dirty) stamp.
+/stdlib/
+/xlibs/
+/corpus/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Test artifacts
+*.profraw
+coverage/
+
+# Z3 solver trace output (created at runtime when Z3's trace flag is enabled;
+# emitted into the cwd that ran the test). edda-refine's discharge tests can
+# trip this on some Z3 builds; the file is empty when unused.
+.z3-trace
+
+# Python
+__pycache__/
+

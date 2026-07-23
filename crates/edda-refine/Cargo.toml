@@ -1,0 +1,39 @@
+[package]
+name = "edda-refine"
+description = "Refinement-type discharge: predicate IR, Z3 backend, AST lifter, proof-certificate writer."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+edda-span.workspace = true
+edda-diag.workspace = true
+edda-syntax.workspace = true
+edda-cache.workspace = true
+smol_str = "0.3"
+# Z3 SMT solver. `static-link-z3` vendors Z3 source into the build and produces
+# a self-contained bootstrap binary, matching backend-choice.md's vendoring
+# posture for LLVM. Requires CMake + Python + a C++ toolchain at build time;
+# CI inherits the same requirement.
+# Optional so that `edda-types` (and any other crate that only needs the
+# solver-agnostic surface) can depend on this crate without triggering a full
+# Z3 build. The `refine` feature re-enables the backend; `edda-driver` enables
+# it unconditionally.
+z3 = { version = "0.12", features = ["static-link-z3"], optional = true }
+# edda-types added when the HIR-to-Predicate integration lands — refine
+# consumes typechecker-built obligations through the PredicateEnv trait,
+# not through a direct typed-HIR dep.
+
+[features]
+# Enables the Z3 SMT backend (`Z3Backend`, `Translator`) and the
+# `z3` crate dependency. Callers that only need the solver-agnostic
+# surface (Predicate IR, Obligation, ProofCertificate, Solver trait,
+# lift, canonical encoding) omit this feature and pay no Z3 build cost.
+refine = ["dep:z3"]
+
+[dev-dependencies]
+# Test fixtures synthesize ast::Ident values, which carry an interned
+# `edda_intern::Symbol`. Production code never touches edda-intern directly.
+edda-intern.workspace = true

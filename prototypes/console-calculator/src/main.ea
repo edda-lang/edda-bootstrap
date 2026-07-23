@@ -1,0 +1,63 @@
+
+
+
+
+
+import local.expr
+import local.parser
+import std.io.stream
+
+
+
+function strip_newline(b: [u8]) -> [u8] {
+    let n = b.len()
+    if n >= 2 {
+        if b[n - 2] == 13 && b[n - 1] == 10 {
+            return b[..(n - 2)]
+        }
+    }
+    if n >= 1 {
+        if b[n - 1] == 10 {
+            return b[..(n - 1)]
+        }
+    }
+    return b
+}
+
+
+
+function is_quit(b: [u8]) -> bool {
+    if b.len() != 4 { return false }
+    let b0 = b[0]
+    let b1 = b[1]
+    let b2 = b[2]
+    let b3 = b[3]
+    if b0 == 113 && b1 == 117 && b2 == 105 && b3 == 116 { return true }
+    if b0 == 101 && b1 == 120 && b2 == 105 && b3 == 116 { return true }
+    return false
+}
+
+
+
+
+
+public function main(stdin: Stdin, out: Stdout) -> ()
+    with {stdin, out, divergence}
+{
+    out.print_line("console calculator — type <num> <op> <num>, or quit to exit")
+    loop {
+        out.print_line("> ")
+        let line = handle err: std.io.stream.IoError -> (break) {
+            stdin.read_line()?
+        }
+        let raw = strip_newline(line.bytes())
+        if is_quit(raw) { break }
+        handle err: parser.ParseError -> out.print_line("error: expected '<number> <op> <number>' (e.g. 3 + 4)") {
+            let e = parser.parse_expr(raw)?
+            handle err: expr.EvalError -> out.print_line("error: division by zero") {
+                let res = expr.evaluate(e)?
+                out.print_line(f"= {res}")
+            }
+        }
+    }
+}

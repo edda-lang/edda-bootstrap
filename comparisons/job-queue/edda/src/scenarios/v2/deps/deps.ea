@@ -1,0 +1,219 @@
+
+
+
+
+
+
+
+import std.mem.alloc
+import local.assert.assert
+import local.clock.clock
+import local.queue.queue.queue
+import local.queue.snapshot.snapshot
+import local.queue.error as queue_error
+import local.test.support as test_support
+
+
+
+public function s100(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let no_caps: [String] = test_support.empty_str(allocator)?
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    let parent_id: u64 = queue.enqueue_full2(
+        mutable q, "parent", 5, 0, "default", no_deps, no_caps, allocator,
+    )?
+    let deps: [u64] = test_support.one_u64(parent_id, allocator)?
+    let _child_id: u64 = queue.enqueue_full2(
+        mutable q, "child", 5, 0, "default", deps, no_caps, allocator,
+    )?
+    let clk: clock.LogicalClock = clock.new()
+    let outcome = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    return match outcome {
+        case .none => assert.assert_true(false, "s100: parent must be acquirable")?
+        case .some(let a) => assert.assert_eq_u64(a.job_id, parent_id, "s100: acquired parent")?
+    }
+}
+
+
+public function s101(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let no_caps: [String] = test_support.empty_str(allocator)?
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    let parent_id: u64 = queue.enqueue_full2(
+        mutable q, "p", 5, 0, "default", no_deps, no_caps, allocator,
+    )?
+    let deps: [u64] = test_support.one_u64(parent_id, allocator)?
+    let child_id: u64 = queue.enqueue_full2(
+        mutable q, "c", 5, 0, "default", deps, no_caps, allocator,
+    )?
+    let clk: clock.LogicalClock = clock.new()
+    let _ = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    queue.complete(mutable q, 1, parent_id)?
+    let outcome = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    return match outcome {
+        case .none => assert.assert_true(false, "s101: child must be acquirable after parent complete")?
+        case .some(let a) => assert.assert_eq_u64(a.job_id, child_id, "s101: acquired child")?
+    }
+}
+
+
+
+public function s102(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let no_caps: [String] = test_support.empty_str(allocator)?
+    let bad_deps: [u64] = test_support.one_u64(1, allocator)?
+    var raised: bool = false
+    handle err: queue_error.QueueError -> { raised = true } {
+        let _ = queue.enqueue_full2(
+            mutable q, "self-cycle", 5, 0, "default", bad_deps, no_caps, allocator,
+        )?
+    }
+    assert.assert_true(raised, "s102: self-cycle must raise invalid_dependency")?
+}
+
+
+
+public function s103(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let no_caps: [String] = test_support.empty_str(allocator)?
+    let bogus: [u64] = test_support.one_u64(2, allocator)?
+    var raised: bool = false
+    handle err: queue_error.QueueError -> { raised = true } {
+        let _ = queue.enqueue_full2(
+            mutable q, "a", 5, 0, "default", bogus, no_caps, allocator,
+        )?
+    }
+    assert.assert_true(raised, "s103: dep on non-existent id must raise invalid_dependency")?
+}
+
+
+public function s104(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let no_caps: [String] = test_support.empty_str(allocator)?
+    let bogus: [u64] = test_support.one_u64(9999, allocator)?
+    var raised: bool = false
+    handle err: queue_error.QueueError -> { raised = true } {
+        let _ = queue.enqueue_full2(
+            mutable q, "x", 5, 0, "default", bogus, no_caps, allocator,
+        )?
+    }
+    assert.assert_true(raised, "s104: unknown dep id must raise invalid_dependency")?
+}
+
+
+public function s105(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let no_caps: [String] = test_support.empty_str(allocator)?
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    let parent_id: u64 = queue.enqueue_full2(
+        mutable q, "p", 5, 0, "default", no_deps, no_caps, allocator,
+    )?
+    let deps: [u64] = test_support.one_u64(parent_id, allocator)?
+    let _child_id: u64 = queue.enqueue_full2(
+        mutable q, "c", 5, 0, "default", deps, no_caps, allocator,
+    )?
+    var clk: clock.LogicalClock = clock.new()
+    
+    let limit: usize = 3
+    var i: usize = 0
+    loop
+        decreases limit - i
+    {
+        if i >= limit { break }
+        let _ = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+        queue.fail(mutable q, 1, parent_id, "transient", clk, allocator)?
+        clock.advance(mutable clk, 60_000_000_000)
+        i = i + 1
+    }
+    assert.assert_eq_usize(queue.dead_letter_len(q), 1, "s105: parent dead-lettered")?
+    assert.assert_eq_usize(queue.cancelled_len(q), 1, "s105: child auto-cancelled")?
+    assert.assert_eq_usize(queue.active_len(q), 0, "s105: child no longer active")?
+}
+
+
+public function s106(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let no_caps: [String] = test_support.empty_str(allocator)?
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    let parent_id: u64 = queue.enqueue_full2(
+        mutable q, "p", 5, 0, "default", no_deps, no_caps, allocator,
+    )?
+    let deps: [u64] = test_support.one_u64(parent_id, allocator)?
+    let _child_id: u64 = queue.enqueue_full2(
+        mutable q, "c", 5, 0, "default", deps, no_caps, allocator,
+    )?
+    let clk: clock.LogicalClock = clock.new()
+    let n: usize = queue.cancel(mutable q, parent_id, "user-cancelled", clk, allocator)?
+    assert.assert_eq_usize(n, 2, "s106: cancel cascade includes child")?
+    assert.assert_eq_usize(queue.cancelled_len(q), 2, "s106: both jobs in cancelled store")?
+}
+
+
+public function s107(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let no_caps: [String] = test_support.empty_str(allocator)?
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    let gp: u64 = queue.enqueue_full2(
+        mutable q, "gp", 5, 0, "default", no_deps, no_caps, allocator,
+    )?
+    let gp_deps: [u64] = test_support.one_u64(gp, allocator)?
+    let p: u64 = queue.enqueue_full2(
+        mutable q, "p", 5, 0, "default", gp_deps, no_caps, allocator,
+    )?
+    let p_deps: [u64] = test_support.one_u64(p, allocator)?
+    let _c: u64 = queue.enqueue_full2(
+        mutable q, "c", 5, 0, "default", p_deps, no_caps, allocator,
+    )?
+    let clk: clock.LogicalClock = clock.new()
+    let n: usize = queue.cancel(mutable q, gp, "axe", clk, allocator)?
+    assert.assert_eq_usize(n, 3, "s107: grandparent cancel cascades through both descendants")?
+}
+
+
+public function s108(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let no_caps: [String] = test_support.empty_str(allocator)?
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    let parent_id: u64 = queue.enqueue_full2(
+        mutable q, "p", 5, 0, "default", no_deps, no_caps, allocator,
+    )?
+    let deps: [u64] = test_support.one_u64(parent_id, allocator)?
+    let child_id: u64 = queue.enqueue_full2(
+        mutable q, "c", 5, 0, "default", deps, no_caps, allocator,
+    )?
+    let snap: snapshot.Snapshot = snapshot.take_snapshot(q, allocator)?
+    var restored: queue.JobQueue = snapshot.restore(snap, allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    
+    let first = queue.acquire(mutable restored, 1, 1_000_000_000, clk, allocator)?
+    let first_id: u64 = match first {
+        case .some(let a) => a.job_id
+        case .none => 0
+    }
+    assert.assert_eq_u64(first_id, parent_id, "s108: post-restore parent acquired")?
+    queue.complete(mutable restored, 1, parent_id)?
+    let second = queue.acquire(mutable restored, 1, 1_000_000_000, clk, allocator)?
+    let second_id: u64 = match second {
+        case .some(let a) => a.job_id
+        case .none => 0
+    }
+    assert.assert_eq_u64(second_id, child_id, "s108: post-restore child acquirable after parent complete")?
+}

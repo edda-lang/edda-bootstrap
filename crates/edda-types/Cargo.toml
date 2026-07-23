@@ -1,0 +1,29 @@
+[package]
+name = "edda-types"
+description = "HIR, bidirectional inference, mode checking, and effect-row checking."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+ahash = "0.8"
+parking_lot = "0.12"
+smol_str = "0.3"
+edda-span.workspace = true
+edda-intern.workspace = true
+edda-diag.workspace = true
+edda-syntax.workspace = true
+edda-resolve.workspace = true
+edda-target.workspace = true
+# Optional: enables the Z3-backed refinement discharge pass inside edda-types.
+# edda-driver enables this feature unconditionally; crates that only need the
+# typed HIR (edda-mir, edda-codegen) omit it and pay no Z3 build cost.
+edda-refine = { workspace = true, optional = true }
+
+[features]
+# Enables the Z3-backed refinement discharge pass. Activating this feature
+# also activates edda-refine's own `refine` feature so the Z3Backend is
+# compiled in. `edda-driver` enables this unconditionally.
+refine = ["dep:edda-refine", "edda-refine/refine"]

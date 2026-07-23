@@ -1,0 +1,1200 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import std.mem.alloc
+import std.io.stream
+import local.assert.assert
+import local.queue.error as queue_error
+import local.scenarios.part1.part1 as scenarios_part1
+import local.scenarios.part2.part2 as scenarios_part2
+import local.scenarios.part3.part3 as scenarios_part3
+import local.scenarios.v2.deps.deps as scenarios_v2_deps
+import local.scenarios.v2.workers.workers as scenarios_v2_workers
+import local.scenarios.v2.cancel.cancel as scenarios_v2_cancel
+import local.scenarios.v2.audit.audit as scenarios_v2_audit
+import local.scenarios.v2.ns.ns as scenarios_v2_ns
+import local.scenarios.v2.promote.promote as scenarios_v2_promote
+import local.scenarios.v2.cross.cross as scenarios_v2_cross
+
+
+
+
+
+
+function dispatch_one(
+    out: Stdout,
+    allocator: Allocator,
+    runner: function(Stdout, Allocator) -> () with {out, allocator},
+) -> () with {out, allocator}
+{
+    runner(out, allocator)
+}
+
+
+
+public function main(out: Stdout, allocator: Allocator) -> ()
+    with {out, allocator}
+{
+    out.print_line("job-queue scenarios — v1.0 + v1.1 + v2.0")
+
+    dispatch_one(out, allocator, run_s01)
+    dispatch_one(out, allocator, run_s02)
+    dispatch_one(out, allocator, run_s03)
+    dispatch_one(out, allocator, run_s04)
+    dispatch_one(out, allocator, run_s05)
+    dispatch_one(out, allocator, run_s06)
+    dispatch_one(out, allocator, run_s07)
+    dispatch_one(out, allocator, run_s08)
+    dispatch_one(out, allocator, run_s09)
+    dispatch_one(out, allocator, run_s10)
+    dispatch_one(out, allocator, run_s11)
+    dispatch_one(out, allocator, run_s12)
+    dispatch_one(out, allocator, run_s13)
+    dispatch_one(out, allocator, run_s14)
+    dispatch_one(out, allocator, run_s15)
+    dispatch_one(out, allocator, run_s16)
+    dispatch_one(out, allocator, run_s17)
+    dispatch_one(out, allocator, run_s18)
+    dispatch_one(out, allocator, run_s19)
+    dispatch_one(out, allocator, run_s20)
+    dispatch_one(out, allocator, run_s21)
+    dispatch_one(out, allocator, run_s22)
+    dispatch_one(out, allocator, run_s23)
+    dispatch_one(out, allocator, run_s24)
+    dispatch_one(out, allocator, run_s25)
+    dispatch_one(out, allocator, run_s26)
+    dispatch_one(out, allocator, run_s27)
+    dispatch_one(out, allocator, run_s28)
+    dispatch_one(out, allocator, run_s29)
+    dispatch_one(out, allocator, run_s30)
+    dispatch_one(out, allocator, run_s31)
+    dispatch_one(out, allocator, run_s32)
+    dispatch_one(out, allocator, run_s33)
+    dispatch_one(out, allocator, run_s34)
+    dispatch_one(out, allocator, run_s35)
+    dispatch_one(out, allocator, run_s36)
+    dispatch_one(out, allocator, run_s37)
+    dispatch_one(out, allocator, run_s38)
+    dispatch_one(out, allocator, run_s39)
+    dispatch_one(out, allocator, run_s40)
+    dispatch_one(out, allocator, run_s41)
+    dispatch_one(out, allocator, run_s42)
+    dispatch_one(out, allocator, run_s43)
+    dispatch_one(out, allocator, run_s44)
+    dispatch_one(out, allocator, run_s45)
+    dispatch_one(out, allocator, run_s46)
+    dispatch_one(out, allocator, run_s47)
+
+    dispatch_one(out, allocator, run_s100)
+    dispatch_one(out, allocator, run_s101)
+    dispatch_one(out, allocator, run_s102)
+    dispatch_one(out, allocator, run_s103)
+    dispatch_one(out, allocator, run_s104)
+    dispatch_one(out, allocator, run_s105)
+    dispatch_one(out, allocator, run_s106)
+    dispatch_one(out, allocator, run_s107)
+    dispatch_one(out, allocator, run_s108)
+    dispatch_one(out, allocator, run_s116)
+    dispatch_one(out, allocator, run_s117)
+    dispatch_one(out, allocator, run_s118)
+    dispatch_one(out, allocator, run_s119)
+    dispatch_one(out, allocator, run_s120)
+    dispatch_one(out, allocator, run_s121)
+    dispatch_one(out, allocator, run_s122)
+    dispatch_one(out, allocator, run_s123)
+    dispatch_one(out, allocator, run_s126)
+    dispatch_one(out, allocator, run_s127)
+    dispatch_one(out, allocator, run_s128)
+    dispatch_one(out, allocator, run_s129)
+    dispatch_one(out, allocator, run_s130)
+    dispatch_one(out, allocator, run_s131)
+    dispatch_one(out, allocator, run_s132)
+    dispatch_one(out, allocator, run_s133)
+    dispatch_one(out, allocator, run_s136)
+    dispatch_one(out, allocator, run_s137)
+    dispatch_one(out, allocator, run_s138)
+    dispatch_one(out, allocator, run_s139)
+    dispatch_one(out, allocator, run_s140)
+    dispatch_one(out, allocator, run_s141)
+    dispatch_one(out, allocator, run_s142)
+    dispatch_one(out, allocator, run_s146)
+    dispatch_one(out, allocator, run_s147)
+    dispatch_one(out, allocator, run_s148)
+    dispatch_one(out, allocator, run_s149)
+    dispatch_one(out, allocator, run_s150)
+    dispatch_one(out, allocator, run_s151)
+    dispatch_one(out, allocator, run_s156)
+    dispatch_one(out, allocator, run_s157)
+    dispatch_one(out, allocator, run_s158)
+    dispatch_one(out, allocator, run_s159)
+    dispatch_one(out, allocator, run_s160)
+    dispatch_one(out, allocator, run_s161)
+    dispatch_one(out, allocator, run_s162)
+    dispatch_one(out, allocator, run_s163)
+    dispatch_one(out, allocator, run_s164)
+    dispatch_one(out, allocator, run_s165)
+
+    out.print_line("scenarios complete")
+}
+
+
+
+
+
+
+
+function run_s01(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s01") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s01 (alloc)") } {
+            scenarios_part1.s01(allocator)?
+            out.print_line("PASS s01")
+        }
+    }
+}
+
+function run_s02(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s02") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s02 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s02 (queue)") } {
+                scenarios_part1.s02(allocator)?
+                out.print_line("PASS s02")
+            }
+        }
+    }
+}
+
+function run_s03(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s03") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s03 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s03 (queue)") } {
+                scenarios_part1.s03(allocator)?
+                out.print_line("PASS s03")
+            }
+        }
+    }
+}
+
+function run_s04(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s04") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s04 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s04 (queue)") } {
+                scenarios_part1.s04(allocator)?
+                out.print_line("PASS s04")
+            }
+        }
+    }
+}
+
+function run_s05(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s05") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s05 (alloc)") } {
+            scenarios_part1.s05(allocator)?
+            out.print_line("PASS s05")
+        }
+    }
+}
+
+function run_s06(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s06") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s06 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s06 (queue)") } {
+                scenarios_part1.s06(allocator)?
+                out.print_line("PASS s06")
+            }
+        }
+    }
+}
+
+function run_s07(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s07") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s07 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s07 (queue)") } {
+                scenarios_part1.s07(allocator)?
+                out.print_line("PASS s07")
+            }
+        }
+    }
+}
+
+function run_s08(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s08") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s08 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s08 (queue)") } {
+                scenarios_part1.s08(allocator)?
+                out.print_line("PASS s08")
+            }
+        }
+    }
+}
+
+function run_s09(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s09") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s09 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s09 (queue)") } {
+                scenarios_part1.s09(allocator)?
+                out.print_line("PASS s09")
+            }
+        }
+    }
+}
+
+function run_s10(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s10") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s10 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s10 (queue)") } {
+                scenarios_part1.s10(allocator)?
+                out.print_line("PASS s10")
+            }
+        }
+    }
+}
+
+function run_s11(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s11") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s11 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s11 (queue)") } {
+                scenarios_part1.s11(allocator)?
+                out.print_line("PASS s11")
+            }
+        }
+    }
+}
+
+function run_s12(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s12") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s12 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s12 (queue)") } {
+                scenarios_part1.s12(allocator)?
+                out.print_line("PASS s12")
+            }
+        }
+    }
+}
+
+function run_s13(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s13") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s13 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s13 (queue)") } {
+                scenarios_part1.s13(allocator)?
+                out.print_line("PASS s13")
+            }
+        }
+    }
+}
+
+function run_s14(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s14") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s14 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s14 (queue)") } {
+                scenarios_part1.s14(allocator)?
+                out.print_line("PASS s14")
+            }
+        }
+    }
+}
+
+function run_s15(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s15") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s15 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s15 (queue)") } {
+                scenarios_part1.s15(allocator)?
+                out.print_line("PASS s15")
+            }
+        }
+    }
+}
+
+function run_s16(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s16") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s16 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s16 (queue)") } {
+                scenarios_part1.s16(allocator)?
+                out.print_line("PASS s16")
+            }
+        }
+    }
+}
+
+function run_s17(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s17") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s17 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s17 (queue)") } {
+                scenarios_part1.s17(allocator)?
+                out.print_line("PASS s17")
+            }
+        }
+    }
+}
+
+function run_s18(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s18") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s18 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s18 (queue)") } {
+                scenarios_part2.s18(allocator)?
+                out.print_line("PASS s18")
+            }
+        }
+    }
+}
+
+function run_s19(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s19") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s19 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s19 (queue)") } {
+                scenarios_part2.s19(allocator)?
+                out.print_line("PASS s19")
+            }
+        }
+    }
+}
+
+function run_s20(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s20") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s20 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s20 (queue)") } {
+                scenarios_part2.s20(allocator)?
+                out.print_line("PASS s20")
+            }
+        }
+    }
+}
+
+function run_s21(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s21") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s21 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s21 (queue)") } {
+                scenarios_part2.s21(allocator)?
+                out.print_line("PASS s21")
+            }
+        }
+    }
+}
+
+function run_s22(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s22") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s22 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s22 (queue)") } {
+                scenarios_part2.s22(allocator)?
+                out.print_line("PASS s22")
+            }
+        }
+    }
+}
+
+function run_s23(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s23") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s23 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s23 (queue)") } {
+                scenarios_part2.s23(allocator)?
+                out.print_line("PASS s23")
+            }
+        }
+    }
+}
+
+function run_s24(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s24") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s24 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s24 (queue)") } {
+                scenarios_part2.s24(allocator)?
+                out.print_line("PASS s24")
+            }
+        }
+    }
+}
+
+function run_s25(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s25") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s25 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s25 (queue)") } {
+                scenarios_part2.s25(allocator)?
+                out.print_line("PASS s25")
+            }
+        }
+    }
+}
+
+function run_s26(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s26") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s26 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s26 (queue)") } {
+                scenarios_part2.s26(allocator)?
+                out.print_line("PASS s26")
+            }
+        }
+    }
+}
+
+function run_s27(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s27") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s27 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s27 (queue)") } {
+                scenarios_part2.s27(allocator)?
+                out.print_line("PASS s27")
+            }
+        }
+    }
+}
+
+function run_s28(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s28") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s28 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s28 (queue)") } {
+                scenarios_part2.s28(allocator)?
+                out.print_line("PASS s28")
+            }
+        }
+    }
+}
+
+function run_s29(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s29") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s29 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s29 (queue)") } {
+                scenarios_part2.s29(allocator)?
+                out.print_line("PASS s29")
+            }
+        }
+    }
+}
+
+function run_s30(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s30") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s30 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s30 (queue)") } {
+                scenarios_part2.s30(allocator)?
+                out.print_line("PASS s30")
+            }
+        }
+    }
+}
+
+
+
+
+
+function run_s31(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s31") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s31 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s31 (queue)") } {
+                scenarios_part3.s31(allocator)?
+                out.print_line("PASS s31")
+            }
+        }
+    }
+}
+
+function run_s32(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s32") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s32 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s32 (queue)") } {
+                scenarios_part3.s32(allocator)?
+                out.print_line("PASS s32")
+            }
+        }
+    }
+}
+
+function run_s33(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s33") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s33 (alloc)") } {
+            scenarios_part3.s33(allocator)?
+            out.print_line("PASS s33")
+        }
+    }
+}
+
+function run_s34(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s34") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s34 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s34 (queue)") } {
+                scenarios_part3.s34(allocator)?
+                out.print_line("PASS s34")
+            }
+        }
+    }
+}
+
+function run_s35(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s35") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s35 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s35 (queue)") } {
+                scenarios_part3.s35(allocator)?
+                out.print_line("PASS s35")
+            }
+        }
+    }
+}
+
+function run_s36(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s36") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s36 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s36 (queue)") } {
+                scenarios_part3.s36(allocator)?
+                out.print_line("PASS s36")
+            }
+        }
+    }
+}
+
+function run_s37(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s37") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s37 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s37 (queue)") } {
+                scenarios_part3.s37(allocator)?
+                out.print_line("PASS s37")
+            }
+        }
+    }
+}
+
+function run_s38(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s38") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s38 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s38 (queue)") } {
+                scenarios_part3.s38(allocator)?
+                out.print_line("PASS s38")
+            }
+        }
+    }
+}
+
+function run_s39(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s39") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s39 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s39 (queue)") } {
+                scenarios_part3.s39(allocator)?
+                out.print_line("PASS s39")
+            }
+        }
+    }
+}
+
+function run_s40(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s40") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s40 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s40 (queue)") } {
+                scenarios_part3.s40(allocator)?
+                out.print_line("PASS s40")
+            }
+        }
+    }
+}
+
+function run_s41(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s41") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s41 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s41 (queue)") } {
+                scenarios_part3.s41(allocator)?
+                out.print_line("PASS s41")
+            }
+        }
+    }
+}
+
+function run_s42(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s42") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s42 (alloc)") } {
+            scenarios_part3.s42(allocator)?
+            out.print_line("PASS s42")
+        }
+    }
+}
+
+function run_s43(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s43") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s43 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s43 (queue)") } {
+                scenarios_part3.s43(allocator)?
+                out.print_line("PASS s43")
+            }
+        }
+    }
+}
+
+function run_s44(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s44") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s44 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s44 (queue)") } {
+                scenarios_part3.s44(allocator)?
+                out.print_line("PASS s44")
+            }
+        }
+    }
+}
+
+function run_s45(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s45") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s45 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s45 (queue)") } {
+                scenarios_part3.s45(allocator)?
+                out.print_line("PASS s45")
+            }
+        }
+    }
+}
+
+function run_s46(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s46") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s46 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s46 (queue)") } {
+                scenarios_part3.s46(allocator)?
+                out.print_line("PASS s46")
+            }
+        }
+    }
+}
+
+function run_s47(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s47") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s47 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s47 (queue)") } {
+                scenarios_part3.s47(allocator)?
+                out.print_line("PASS s47")
+            }
+        }
+    }
+}
+
+
+
+
+
+function run_s100(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s100") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s100 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s100 (queue)") } {
+                scenarios_v2_deps.s100(allocator)?
+                out.print_line("PASS s100")
+            }
+        }
+    }
+}
+
+function run_s101(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s101") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s101 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s101 (queue)") } {
+                scenarios_v2_deps.s101(allocator)?
+                out.print_line("PASS s101")
+            }
+        }
+    }
+}
+
+function run_s102(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s102") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s102 (alloc)") } {
+            scenarios_v2_deps.s102(allocator)?
+            out.print_line("PASS s102")
+        }
+    }
+}
+
+function run_s103(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s103") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s103 (alloc)") } {
+            scenarios_v2_deps.s103(allocator)?
+            out.print_line("PASS s103")
+        }
+    }
+}
+
+function run_s104(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s104") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s104 (alloc)") } {
+            scenarios_v2_deps.s104(allocator)?
+            out.print_line("PASS s104")
+        }
+    }
+}
+
+function run_s105(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s105") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s105 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s105 (queue)") } {
+                scenarios_v2_deps.s105(allocator)?
+                out.print_line("PASS s105")
+            }
+        }
+    }
+}
+
+function run_s106(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s106") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s106 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s106 (queue)") } {
+                scenarios_v2_deps.s106(allocator)?
+                out.print_line("PASS s106")
+            }
+        }
+    }
+}
+
+function run_s107(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s107") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s107 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s107 (queue)") } {
+                scenarios_v2_deps.s107(allocator)?
+                out.print_line("PASS s107")
+            }
+        }
+    }
+}
+
+function run_s108(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s108") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s108 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s108 (queue)") } {
+                scenarios_v2_deps.s108(allocator)?
+                out.print_line("PASS s108")
+            }
+        }
+    }
+}
+
+function run_s116(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s116") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s116 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s116 (queue)") } {
+                scenarios_v2_workers.s116(allocator)?
+                out.print_line("PASS s116")
+            }
+        }
+    }
+}
+
+function run_s117(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s117") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s117 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s117 (queue)") } {
+                scenarios_v2_workers.s117(allocator)?
+                out.print_line("PASS s117")
+            }
+        }
+    }
+}
+
+function run_s118(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s118") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s118 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s118 (queue)") } {
+                scenarios_v2_workers.s118(allocator)?
+                out.print_line("PASS s118")
+            }
+        }
+    }
+}
+
+function run_s119(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s119") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s119 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s119 (queue)") } {
+                scenarios_v2_workers.s119(allocator)?
+                out.print_line("PASS s119")
+            }
+        }
+    }
+}
+
+function run_s120(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s120") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s120 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s120 (queue)") } {
+                scenarios_v2_workers.s120(allocator)?
+                out.print_line("PASS s120")
+            }
+        }
+    }
+}
+
+function run_s121(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s121") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s121 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s121 (queue)") } {
+                scenarios_v2_workers.s121(allocator)?
+                out.print_line("PASS s121")
+            }
+        }
+    }
+}
+
+function run_s122(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s122") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s122 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s122 (queue)") } {
+                scenarios_v2_workers.s122(allocator)?
+                out.print_line("PASS s122")
+            }
+        }
+    }
+}
+
+function run_s123(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s123") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s123 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s123 (queue)") } {
+                scenarios_v2_workers.s123(allocator)?
+                out.print_line("PASS s123")
+            }
+        }
+    }
+}
+
+function run_s126(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s126") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s126 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s126 (queue)") } {
+                scenarios_v2_cancel.s126(allocator)?
+                out.print_line("PASS s126")
+            }
+        }
+    }
+}
+
+function run_s127(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s127") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s127 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s127 (queue)") } {
+                scenarios_v2_cancel.s127(allocator)?
+                out.print_line("PASS s127")
+            }
+        }
+    }
+}
+
+function run_s128(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s128") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s128 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s128 (queue)") } {
+                scenarios_v2_cancel.s128(allocator)?
+                out.print_line("PASS s128")
+            }
+        }
+    }
+}
+
+function run_s129(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s129") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s129 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s129 (queue)") } {
+                scenarios_v2_cancel.s129(allocator)?
+                out.print_line("PASS s129")
+            }
+        }
+    }
+}
+
+function run_s130(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s130") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s130 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s130 (queue)") } {
+                scenarios_v2_cancel.s130(allocator)?
+                out.print_line("PASS s130")
+            }
+        }
+    }
+}
+
+function run_s131(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s131") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s131 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s131 (queue)") } {
+                scenarios_v2_cancel.s131(allocator)?
+                out.print_line("PASS s131")
+            }
+        }
+    }
+}
+
+function run_s132(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s132") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s132 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s132 (queue)") } {
+                scenarios_v2_cancel.s132(allocator)?
+                out.print_line("PASS s132")
+            }
+        }
+    }
+}
+
+function run_s133(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s133") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s133 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s133 (queue)") } {
+                scenarios_v2_cancel.s133(allocator)?
+                out.print_line("PASS s133")
+            }
+        }
+    }
+}
+
+function run_s136(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s136") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s136 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s136 (queue)") } {
+                scenarios_v2_audit.s136(allocator)?
+                out.print_line("PASS s136")
+            }
+        }
+    }
+}
+
+function run_s137(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s137") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s137 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s137 (queue)") } {
+                scenarios_v2_audit.s137(allocator)?
+                out.print_line("PASS s137")
+            }
+        }
+    }
+}
+
+function run_s138(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s138") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s138 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s138 (queue)") } {
+                scenarios_v2_audit.s138(allocator)?
+                out.print_line("PASS s138")
+            }
+        }
+    }
+}
+
+function run_s139(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s139") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s139 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s139 (queue)") } {
+                scenarios_v2_audit.s139(allocator)?
+                out.print_line("PASS s139")
+            }
+        }
+    }
+}
+
+function run_s140(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s140") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s140 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s140 (queue)") } {
+                scenarios_v2_audit.s140(allocator)?
+                out.print_line("PASS s140")
+            }
+        }
+    }
+}
+
+function run_s141(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s141") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s141 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s141 (queue)") } {
+                scenarios_v2_audit.s141(allocator)?
+                out.print_line("PASS s141")
+            }
+        }
+    }
+}
+
+function run_s142(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s142") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s142 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s142 (queue)") } {
+                scenarios_v2_audit.s142(allocator)?
+                out.print_line("PASS s142")
+            }
+        }
+    }
+}
+
+function run_s146(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s146") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s146 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s146 (queue)") } {
+                scenarios_v2_ns.s146(allocator)?
+                out.print_line("PASS s146")
+            }
+        }
+    }
+}
+
+function run_s147(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s147") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s147 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s147 (queue)") } {
+                scenarios_v2_ns.s147(allocator)?
+                out.print_line("PASS s147")
+            }
+        }
+    }
+}
+
+function run_s148(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s148") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s148 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s148 (queue)") } {
+                scenarios_v2_ns.s148(allocator)?
+                out.print_line("PASS s148")
+            }
+        }
+    }
+}
+
+function run_s149(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s149") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s149 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s149 (queue)") } {
+                scenarios_v2_ns.s149(allocator)?
+                out.print_line("PASS s149")
+            }
+        }
+    }
+}
+
+function run_s150(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s150") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s150 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s150 (queue)") } {
+                scenarios_v2_ns.s150(allocator)?
+                out.print_line("PASS s150")
+            }
+        }
+    }
+}
+
+function run_s151(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s151") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s151 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s151 (queue)") } {
+                scenarios_v2_ns.s151(allocator)?
+                out.print_line("PASS s151")
+            }
+        }
+    }
+}
+
+function run_s156(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s156") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s156 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s156 (queue)") } {
+                scenarios_v2_promote.s156(allocator)?
+                out.print_line("PASS s156")
+            }
+        }
+    }
+}
+
+function run_s157(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s157") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s157 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s157 (queue)") } {
+                scenarios_v2_promote.s157(allocator)?
+                out.print_line("PASS s157")
+            }
+        }
+    }
+}
+
+function run_s158(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s158") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s158 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s158 (queue)") } {
+                scenarios_v2_promote.s158(allocator)?
+                out.print_line("PASS s158")
+            }
+        }
+    }
+}
+
+function run_s159(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s159") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s159 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s159 (queue)") } {
+                scenarios_v2_promote.s159(allocator)?
+                out.print_line("PASS s159")
+            }
+        }
+    }
+}
+
+function run_s160(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s160") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s160 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s160 (queue)") } {
+                scenarios_v2_promote.s160(allocator)?
+                out.print_line("PASS s160")
+            }
+        }
+    }
+}
+
+function run_s161(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s161") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s161 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s161 (queue)") } {
+                scenarios_v2_cross.s161(allocator)?
+                out.print_line("PASS s161")
+            }
+        }
+    }
+}
+
+function run_s162(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s162") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s162 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s162 (queue)") } {
+                scenarios_v2_cross.s162(allocator)?
+                out.print_line("PASS s162")
+            }
+        }
+    }
+}
+
+function run_s163(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s163") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s163 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s163 (queue)") } {
+                scenarios_v2_cross.s163(allocator)?
+                out.print_line("PASS s163")
+            }
+        }
+    }
+}
+
+function run_s164(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s164") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s164 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s164 (queue)") } {
+                scenarios_v2_cross.s164(allocator)?
+                out.print_line("PASS s164")
+            }
+        }
+    }
+}
+
+function run_s165(out: Stdout, allocator: Allocator) -> () with {out, allocator} {
+    handle err: assert.AssertError -> { out.print_line("FAIL s165") } {
+        handle err: alloc.AllocError -> { out.print_line("FAIL s165 (alloc)") } {
+            handle err: queue_error.QueueError -> { out.print_line("FAIL s165 (queue)") } {
+                scenarios_v2_cross.s165(allocator)?
+                out.print_line("PASS s165")
+            }
+        }
+    }
+}

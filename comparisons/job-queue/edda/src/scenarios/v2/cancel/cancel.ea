@@ -1,0 +1,167 @@
+
+
+import std.mem.alloc
+import local.assert.assert
+import local.audit
+import local.clock.clock
+import local.queue.queue.queue
+import local.queue.snapshot.snapshot
+import local.queue.error as queue_error
+import local.test.support as test_support
+
+
+
+public function s126(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue(mutable q, "leaf", allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let n: usize = queue.cancel(mutable q, id, "user", clk, allocator)?
+    assert.assert_eq_usize(n, 1, "s126: single-job cancel returns count=1")?
+    assert.assert_eq_usize(queue.cancelled_len(q), 1, "s126: leaf in cancelled store")?
+    let entry = queue.cancelled_at(q, 0)
+    assert.assert_eq_u64(entry.job.id, id, "s126: cancelled entry has correct id")?
+    let m = queue.metrics_snapshot(q)
+    assert.assert_eq_u64(m.cancelled_total, 1, "s126: cancelled_total bumped")?
+}
+
+
+public function s127(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let no_caps: [String] = test_support.empty_str(allocator)?
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    let parent: u64 = queue.enqueue_full2(
+        mutable q, "p", 5, 0, "default", no_deps, no_caps, allocator,
+    )?
+    let deps: [u64] = test_support.one_u64(parent, allocator)?
+    let _ = queue.enqueue_full2(
+        mutable q, "c", 5, 0, "default", deps, no_caps, allocator,
+    )?
+    let clk: clock.LogicalClock = clock.new()
+    let n: usize = queue.cancel(mutable q, parent, "x", clk, allocator)?
+    assert.assert_eq_usize(n, 2, "s127: parent + child")?
+}
+
+
+public function s128(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let no_caps: [String] = test_support.empty_str(allocator)?
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    let gp: u64 = queue.enqueue_full2(
+        mutable q, "gp", 5, 0, "default", no_deps, no_caps, allocator,
+    )?
+    let gp_deps: [u64] = test_support.one_u64(gp, allocator)?
+    let p: u64 = queue.enqueue_full2(
+        mutable q, "p", 5, 0, "default", gp_deps, no_caps, allocator,
+    )?
+    let p_deps: [u64] = test_support.one_u64(p, allocator)?
+    let _ = queue.enqueue_full2(
+        mutable q, "c", 5, 0, "default", p_deps, no_caps, allocator,
+    )?
+    let clk: clock.LogicalClock = clock.new()
+    let n: usize = queue.cancel(mutable q, gp, "axe", clk, allocator)?
+    assert.assert_eq_usize(n, 3, "s128: whole subtree cancelled")?
+}
+
+
+public function s129(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue(mutable q, "x", allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let _ = queue.cancel(mutable q, id, "first", clk, allocator)?
+    let second: usize = queue.cancel(mutable q, id, "second", clk, allocator)?
+    assert.assert_eq_usize(second, 0, "s129: re-cancel returns 0")?
+    assert.assert_eq_usize(queue.cancelled_len(q), 1, "s129: still one in cancelled store")?
+}
+
+
+public function s130(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue(mutable q, "x", allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let _ = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    queue.complete(mutable q, 1, id)?
+    let n: usize = queue.cancel(mutable q, id, "post-complete", clk, allocator)?
+    assert.assert_eq_usize(n, 0, "s130: cancel after complete is no-op")?
+    assert.assert_eq_usize(queue.cancelled_len(q), 0, "s130: nothing in cancelled store")?
+}
+
+
+public function s131(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue(mutable q, "x", allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let _ = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    assert.assert_eq_usize(queue.leased_len(q), 1, "s131: pre-cancel lease held")?
+    let n: usize = queue.cancel(mutable q, id, "user", clk, allocator)?
+    assert.assert_eq_usize(n, 1, "s131: leased job cancelled")?
+    assert.assert_eq_usize(queue.leased_len(q), 0, "s131: lease force-expired")?
+    assert.assert_eq_usize(queue.cancelled_len(q), 1, "s131: job in cancelled store")?
+    
+    var raised: bool = false
+    handle err: queue_error.QueueError -> { raised = true } {
+        queue.heartbeat(mutable q, 1, id, 1_000_000, clk, allocator)?
+    }
+    assert.assert_true(raised, "s131: post-cancel heartbeat raises")?
+}
+
+
+public function s132(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue(mutable q, "x", allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let _ = queue.cancel(mutable q, id, "specific-reason", clk, allocator)?
+    let snap: snapshot.Snapshot = snapshot.take_snapshot(q, allocator)?
+    let restored: queue.JobQueue = snapshot.restore(snap, allocator)?
+    assert.assert_eq_usize(queue.cancelled_len(restored), 1, "s132: cancelled entry survives")?
+    let entry = queue.cancelled_at(restored, 0)
+    assert.assert_eq_u64(entry.job.id, id, "s132: id intact")?
+}
+
+
+public function s133(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let no_caps: [String] = test_support.empty_str(allocator)?
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    let parent: u64 = queue.enqueue_full2(
+        mutable q, "p", 5, 0, "default", no_deps, no_caps, allocator,
+    )?
+    let deps: [u64] = test_support.one_u64(parent, allocator)?
+    let _ = queue.enqueue_full2(
+        mutable q, "c", 5, 0, "default", deps, no_caps, allocator,
+    )?
+    let clk: clock.LogicalClock = clock.new()
+    let _ = queue.cancel(mutable q, parent, "x", clk, allocator)?
+    
+    var count: usize = 0
+    let n: usize = queue.audit_len(q)
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        let e: audit.AuditEvent = queue.audit_at(q, i)
+        let is_cancelled: bool = match e.kind {
+            case .cancelled => true
+            case _ => false
+        }
+        if is_cancelled { count = count + 1 }
+        i = i + 1
+    }
+    assert.assert_eq_usize(count, 2, "s133: one Cancelled event per cancelled job")?
+}

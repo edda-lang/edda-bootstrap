@@ -1,0 +1,96 @@
+import std.mem.alloc
+import std.core.option
+import std.collections.vec
+import local.job.job
+import local.namespace
+import local.worker.worker
+
+spec std.collections.vec.Vec(job.DeadEntry)
+spec std.collections.vec.Vec(namespace.NamespaceState)
+spec std.core.option.Option(usize)
+
+
+public function count_namespace_dead(dead_letter: Vec_DeadEntry.Vec, name: String) -> usize {
+    let n: usize = Vec_DeadEntry.len(dead_letter)
+    var count: usize = 0
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        let e: job.DeadEntry = Vec_DeadEntry.at(dead_letter, i)
+        if worker.string_equals(e.namespace, name) {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    return count
+}
+
+
+public function push_dead_letter(
+    dead_letter: mutable Vec_DeadEntry.Vec,
+    namespaces: Vec_NamespaceState.Vec,
+    entry: job.DeadEntry,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: alloc.AllocError}
+{
+    let ns_idx_opt: Option_usize = find_namespace_index(namespaces, entry.namespace)
+    return match ns_idx_opt {
+        case .none => {
+            Vec_DeadEntry.push(mutable dead_letter, entry, allocator)?
+        }
+        case .some(let ns_idx) => {
+            let ns_state: namespace.NamespaceState = Vec_NamespaceState.at(namespaces, ns_idx)
+            let cap: usize = ns_state.dead_letter_capacity
+            if count_namespace_dead(dead_letter, entry.namespace) >= cap {
+                let oldest_idx_opt: Option_usize = find_oldest_dead_for_namespace(dead_letter, entry.namespace)
+                return match oldest_idx_opt {
+                    case .some(let oldest) => {
+                        let _ = Vec_DeadEntry.remove(mutable dead_letter, oldest)
+                        Vec_DeadEntry.push(mutable dead_letter, entry, allocator)?
+                    }
+                    case .none => {
+                        Vec_DeadEntry.push(mutable dead_letter, entry, allocator)?
+                    }
+                }
+            }
+            Vec_DeadEntry.push(mutable dead_letter, entry, allocator)?
+        }
+    }
+}
+
+
+function find_namespace_index(namespaces: Vec_NamespaceState.Vec, name: String) -> Option_usize {
+    let n: usize = Vec_NamespaceState.len(namespaces)
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        let ns: namespace.NamespaceState = Vec_NamespaceState.at(namespaces, i)
+        if worker.string_equals(ns.name, name) {
+            return Option_usize.some(value: i)
+        }
+        i = i + 1
+    }
+    return Option_usize.none
+}
+
+
+function find_oldest_dead_for_namespace(dead_letter: Vec_DeadEntry.Vec, ns: String) -> Option_usize {
+    let n: usize = Vec_DeadEntry.len(dead_letter)
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        let e: job.DeadEntry = Vec_DeadEntry.at(dead_letter, i)
+        if worker.string_equals(e.namespace, ns) {
+            return Option_usize.some(value: i)
+        }
+        i = i + 1
+    }
+    return Option_usize.none
+}

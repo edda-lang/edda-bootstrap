@@ -1,0 +1,173 @@
+
+
+import std.mem.alloc
+import local.assert.assert
+import local.audit
+import local.clock.clock
+import local.queue.queue.queue
+import local.queue.snapshot.snapshot
+import local.queue.error as queue_error
+import local.test.support as test_support
+
+
+public function s136(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let _ = queue.enqueue(mutable q, "x", allocator)?
+    assert.assert_eq_usize(queue.audit_len(q), 1, "s136: one event recorded")?
+    let e: audit.AuditEvent = queue.audit_at(q, 0)
+    assert.assert_true(
+        match e.kind {
+            case .enqueued => true
+            case _ => false
+        },
+        "s136: kind is Enqueued",
+    )?
+}
+
+
+public function s137(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let id: u64 = queue.enqueue(mutable q, "x", allocator)?
+    let clk: clock.LogicalClock = clock.new()
+    let _ = queue.acquire(mutable q, 1, 1_000_000_000, clk, allocator)?
+    queue.complete(mutable q, 1, id)?
+    assert.assert_eq_usize(queue.audit_len(q), 3, "s137: enq + acq + complete")?
+    let e0 = queue.audit_at(q, 0)
+    let e1 = queue.audit_at(q, 1)
+    let e2 = queue.audit_at(q, 2)
+    assert.assert_true(
+        match e0.kind {
+            case .enqueued => true
+            case _ => false
+        },
+        "s137: event 0 is Enqueued",
+    )?
+    assert.assert_true(
+        match e1.kind {
+            case .acquired => true
+            case _ => false
+        },
+        "s137: event 1 is Acquired",
+    )?
+    assert.assert_true(
+        match e2.kind {
+            case .completed => true
+            case _ => false
+        },
+        "s137: event 2 is Completed",
+    )?
+}
+
+
+public function s138(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.audit_bounded_cfg(3), 1, allocator)?
+    let _ = queue.enqueue(mutable q, "a", allocator)?
+    let _ = queue.enqueue(mutable q, "b", allocator)?
+    let _ = queue.enqueue(mutable q, "c", allocator)?
+    let _ = queue.enqueue(mutable q, "d", allocator)?
+    assert.assert_eq_usize(queue.audit_len(q), 3, "s138: capped at retention=3")?
+    
+    let oldest: audit.AuditEvent = queue.audit_at(q, 0)
+    assert.assert_eq_u64(oldest.event_id, 2, "s138: oldest retained event_id is 2")?
+}
+
+
+
+public function s139(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let _ = queue.enqueue(mutable q, "a", allocator)?
+    let _ = queue.enqueue(mutable q, "b", allocator)?
+    let _ = queue.enqueue(mutable q, "c", allocator)?
+    let after_1: [audit.AuditEvent] = queue.audit_since(q, 1, allocator)?
+    assert.assert_eq_usize(after_1.len(), 2, "s139: 2 events after id 1")?
+    let after_3: [audit.AuditEvent] = queue.audit_since(q, 3, allocator)?
+    assert.assert_eq_usize(after_3.len(), 0, "s139: 0 events after id 3 (nothing newer)")?
+}
+
+
+public function s140(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.audit_bounded_cfg(2), 1, allocator)?
+    let _ = queue.enqueue(mutable q, "a", allocator)?
+    let _ = queue.enqueue(mutable q, "b", allocator)?
+    let _ = queue.enqueue(mutable q, "c", allocator)?
+    
+    
+    var raised: bool = false
+    handle err: queue_error.QueueError -> { raised = true } {
+        let _ = queue.audit_since(q, 0, allocator)?
+    }
+    assert.assert_true(raised, "s140: dropped watermark raises")?
+}
+
+
+
+public function s141(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let _ = queue.enqueue(mutable q, "a", allocator)?
+    let _ = queue.enqueue(mutable q, "b", allocator)?
+    let snap: snapshot.Snapshot = snapshot.take_snapshot(q, allocator)?
+    var restored: queue.JobQueue = snapshot.restore(snap, allocator)?
+    assert.assert_eq_usize(queue.audit_len(restored), 2, "s141: events survive restore")?
+    let _ = queue.enqueue(mutable restored, "c", allocator)?
+    let after: audit.AuditEvent = queue.audit_at(restored, 2)
+    assert.assert_eq_u64(after.event_id, 3, "s141: event_id continues from pre-restart")?
+}
+
+
+
+public function s142(allocator: Allocator) -> ()
+    with {allocator, err: assert.AssertError, err: alloc.AllocError, err: queue_error.QueueError}
+{
+    var q: queue.JobQueue = queue.new(test_support.default_cfg(), 1, allocator)?
+    let no_caps: [String] = test_support.empty_str(allocator)?
+    let no_deps: [u64] = test_support.empty_u64(allocator)?
+    let parent: u64 = queue.enqueue_full2(
+        mutable q, "p", 5, 0, "default", no_deps, no_caps, allocator,
+    )?
+    let deps: [u64] = test_support.one_u64(parent, allocator)?
+    let _ = queue.enqueue_full2(
+        mutable q, "c", 5, 0, "default", deps, no_caps, allocator,
+    )?
+    var clk: clock.LogicalClock = clock.new()
+    clock.advance(mutable clk, 5_000_000_000)
+    let _ = queue.cancel(mutable q, parent, "x", clk, allocator)?
+    
+    let n: usize = queue.audit_len(q)
+    var first_cancel_at: i64 = -1
+    var matched: usize = 0
+    var consistent: bool = true
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        let e = queue.audit_at(q, i)
+        let is_cancel: bool = match e.kind {
+            case .cancelled => true
+            case _ => false
+        }
+        if is_cancel {
+            if first_cancel_at < 0 {
+                first_cancel_at = e.at_nanos
+            } else if e.at_nanos != first_cancel_at {
+                consistent = false
+            }
+            matched = matched + 1
+        }
+        i = i + 1
+    }
+    assert.assert_eq_usize(matched, 2, "s142: two cancel events")?
+    assert.assert_true(consistent, "s142: all cancel events share at_nanos")?
+}

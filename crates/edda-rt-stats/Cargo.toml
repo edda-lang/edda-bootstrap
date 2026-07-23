@@ -1,0 +1,8 @@
+[package]
+name = "edda-rt-stats"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]

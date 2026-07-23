@@ -1,0 +1,93 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+import std.mem.alloc
+import std.core.option
+import std.collections.hashmap
+import local.parse
+
+spec std.core.option.Option(f64)
+spec std.collections.hashmap.StringMap(f64)
+spec std.mem.alloc.Box(parse.Expr)
+
+
+
+public type EvalError {
+    case unbound_var(name: String)
+    case division_by_zero
+}
+
+
+
+function apply_op(op: parse.Op, left: f64, right: f64) -> f64
+    with {err: EvalError}
+{
+    return match op {
+        case .add      => left + right
+        case .subtract => left - right
+        case .multiply => left * right
+        case .divide   => {
+            if right == 0.0 {
+                raise EvalError.division_by_zero
+            }
+            left / right
+        }
+    }
+}
+
+
+
+function eval_boxed(
+    box: Box_Expr,
+    env: mutable StringMap_f64,
+    allocator: mutable Allocator,
+) -> f64
+    with {allocator, err: EvalError, err: alloc.AllocError, divergence}
+{
+    let inner = box.unbox(mutable allocator)
+    return eval(take inner, mutable env, mutable allocator)?
+}
+
+
+
+
+
+
+public function eval(
+    e: take parse.Expr,
+    env: mutable StringMap_f64,
+    allocator: mutable Allocator,
+) -> f64
+    with {allocator, err: EvalError, err: alloc.AllocError, divergence}
+{
+    return match e {
+        case .lit(let v) => v
+        case .var_ref(let name) => {
+            let lookup = env.get(name)
+            return match lookup {
+                case .some(let v) => v
+                case .none        => raise EvalError.unbound_var(name: name)
+            }
+        }
+        case .binop(let op, let lhs, let rhs) => {
+            let l = eval_boxed(lhs, mutable env, mutable allocator)?
+            let r = eval_boxed(rhs, mutable env, mutable allocator)?
+            apply_op(op, l, r)?
+        }
+        case .let_in(let name, let value, let body) => {
+            let v = eval_boxed(value, mutable env, mutable allocator)?
+            let _ = env.insert(name, v, allocator)?
+            eval_boxed(body, mutable env, mutable allocator)?
+        }
+    }
+}

@@ -1,0 +1,77 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import std.mem.alloc
+import std.core.option
+
+spec std.core.option.Option(ResultRow)
+
+public type ResultRow {
+    column_count: u32
+    bytes: [u8]
+}
+
+
+
+
+
+
+
+
+
+public type ResultIterator {
+    rows: [ResultRow]
+    cursor: usize
+}
+
+
+
+public function result_iterator_new(rows: take [ResultRow]) -> ResultIterator {
+    return ResultIterator { rows: rows, cursor: 0 }
+}
+
+
+
+
+
+function alloc_u8_array(allocator: Allocator, n: usize) -> [u8]
+    with {allocator, err: alloc.AllocError}
+    extern "__edda_alloc_array"
+
+public function result_iterator_next(
+    it: mutable ResultIterator,
+    allocator: Allocator,
+) -> Option_ResultRow
+    with {allocator, err: alloc.AllocError}
+    requires it.cursor <= it.rows.len()
+    ensures  it.cursor <= it.rows.len()
+{
+    if it.cursor >= it.rows.len() {
+        return Option_ResultRow.none
+    }
+    let src = it.rows[it.cursor]
+    var copy_bytes = alloc_u8_array(allocator, src.bytes.len())?
+    var i: usize = 0
+    loop
+        decreases src.bytes.len() - i
+    {
+        if i >= src.bytes.len() { break }
+        copy_bytes[i] = src.bytes[i]
+        i += 1
+    }
+    let row = ResultRow { column_count: src.column_count, bytes: copy_bytes }
+    it.cursor += 1
+    return Option_ResultRow.some(value: row)
+}

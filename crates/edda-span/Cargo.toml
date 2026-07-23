@@ -1,0 +1,11 @@
+[package]
+name = "edda-span"
+description = "Source spans, file identifiers, and source-map management."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+parking_lot = "0.12"

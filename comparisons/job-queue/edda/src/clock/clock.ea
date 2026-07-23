@@ -1,0 +1,79 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+public let MAX_NANOS: i64 = 9_223_372_036_854_775_807
+
+
+
+
+
+
+
+public type LogicalClock {
+    now_nanos: i64 where now_nanos >= 0,
+}
+
+
+
+
+public stable function new() -> LogicalClock {
+    return LogicalClock { now_nanos: 0 }
+}
+
+
+public stable function at(now_nanos: i64 where now_nanos >= 0) -> LogicalClock {
+    return LogicalClock { now_nanos: now_nanos }
+}
+
+
+public stable function now(c: LogicalClock) -> i64
+    ensures result >= 0
+{
+    return c.now_nanos
+}
+
+
+
+
+
+public stable function advance(
+    c: mutable LogicalClock,
+    delta: i64 where delta >= 0,
+) -> ()
+    requires c.now_nanos <= 9_223_372_036_854_775_807 - delta
+{
+    c.now_nanos = c.now_nanos + delta
+}
+
+
+
+
+
+
+public stable function deadline(
+    c: LogicalClock,
+    duration_nanos: i64 where duration_nanos >= 0,
+) -> i64
+    requires c.now_nanos <= 9_223_372_036_854_775_807 - duration_nanos
+    ensures result >= c.now_nanos
+    ensures result >= 0
+{
+    return c.now_nanos + duration_nanos
+}

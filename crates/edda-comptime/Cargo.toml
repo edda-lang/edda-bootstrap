@@ -1,0 +1,18 @@
+[package]
+name = "edda-comptime"
+description = "Comptime evaluator and comptime built-ins."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+ahash = "0.8"
+edda-span.workspace = true
+edda-intern.workspace = true
+edda-diag.workspace = true
+edda-resolve.workspace = true
+edda-target.workspace = true
+edda-syntax.workspace = true
+edda-types.workspace = true

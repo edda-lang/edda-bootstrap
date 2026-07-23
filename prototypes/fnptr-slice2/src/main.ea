@@ -1,0 +1,15 @@
+
+
+
+
+
+
+
+function add_one(x: i32) -> i32 {
+    return x + 1
+}
+
+public function main() -> i32 {
+    let h: function(i32) -> i32 with {} = add_one
+    return h(41)
+}

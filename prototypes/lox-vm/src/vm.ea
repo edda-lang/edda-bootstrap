@@ -1,0 +1,473 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import std.mem.alloc
+import std.collections.hashmap
+import std.io.stream
+import std.core.option
+import std.collections.vec
+
+import local.chunk
+import local.opcode
+import local.value
+
+spec std.collections.vec.Vec(value.Value)
+spec std.collections.hashmap.StringMap(value.Value)
+spec std.core.option.Option(value.Value)
+
+
+
+
+function string_concat_extern(a: String, b: String, allocator: Allocator) -> String
+    with {allocator, err: alloc.AllocError}
+    extern "__edda_string_concat"
+
+
+
+
+
+public type RuntimeError {
+    case operand_must_be_number
+    case operands_must_be_two_numbers
+    case operands_must_be_two_numbers_or_strings
+    case undefined_variable(name: String)
+    case stack_underflow
+    case stack_overflow
+}
+
+
+
+
+
+public type Vm {
+    program: chunk.Chunk
+    ip: usize
+    stack: Vec_Value.Vec
+    globals: StringMap_Value.StringMap
+}
+
+
+
+
+
+public function vm_new(
+    chunk_in: take chunk.Chunk,
+    allocator: Allocator,
+) -> Vm
+    with {allocator, err: alloc.AllocError}
+{
+    let stack_data = Vec_Value._alloc_array(allocator, 256)?
+    let stack = Vec_Value.Vec { capacity: 256, len: 0, data: stack_data }
+    let globals = StringMap_Value.new(allocator)?
+    return Vm {
+        program: chunk_in,
+        ip: 0,
+        stack: stack,
+        globals: globals,
+    }
+}
+
+
+
+
+
+
+
+function vm_push(vm: mutable Vm, v: take value.Value, allocator: Allocator) -> ()
+    with {allocator, err: alloc.AllocError, err: RuntimeError}
+{
+    if Vec_Value.len(vm.stack) >= 256 {
+        raise RuntimeError.stack_overflow
+    }
+    Vec_Value.push(mutable vm.stack, take v, allocator)?
+}
+
+
+
+function vm_pop(vm: mutable Vm) -> value.Value
+    with {err: RuntimeError}
+{
+    let opt = Vec_Value.pop(mutable vm.stack)
+    return match opt {
+        case .some(let v) => v
+        case .none        => raise RuntimeError.stack_underflow
+    }
+}
+
+
+
+
+function vm_peek(vm: Vm, distance: usize) -> value.Value
+    with {err: RuntimeError}
+{
+    let n = Vec_Value.len(vm.stack)
+    if distance >= n {
+        raise RuntimeError.stack_underflow
+    }
+    return Vec_Value.at(vm.stack, n - 1 - distance)
+}
+
+
+
+
+
+
+function read_byte(vm: mutable Vm) -> u8 {
+    let b = chunk.chunk_byte(vm.program, vm.ip)
+    vm.ip = vm.ip + 1
+    return b
+}
+
+
+function read_u16(vm: mutable Vm) -> u16 {
+    let r = chunk.chunk_read_u16(vm.program, vm.ip)
+    vm.ip = vm.ip + 2
+    return r
+}
+
+
+function read_constant(vm: mutable Vm) -> value.Value {
+    let idx = read_byte(mutable vm)
+    return chunk.chunk_constant(vm.program, idx as usize)
+}
+
+
+
+
+
+
+
+function pop_two_numbers(vm: mutable Vm) -> (f64, f64)
+    with {err: RuntimeError}
+{
+    let b = vm_pop(mutable vm)?
+    let a = vm_pop(mutable vm)?
+    return match (a, b) {
+        case (.v_number(let an), .v_number(let bn)) => (an, bn)
+        case _ => raise RuntimeError.operands_must_be_two_numbers
+    }
+}
+
+
+function pop_one_number(vm: mutable Vm) -> f64
+    with {err: RuntimeError}
+{
+    let v = vm_pop(mutable vm)?
+    return match v {
+        case .v_number(let n) => n
+        case _                => raise RuntimeError.operand_must_be_number
+    }
+}
+
+
+
+
+
+
+function exec_constant(vm: mutable Vm, allocator: Allocator) -> ()
+    with {allocator, err: alloc.AllocError, err: RuntimeError}
+{
+    let v = read_constant(mutable vm)
+    vm_push(mutable vm, v, allocator)?
+}
+
+
+
+function exec_get_local(vm: mutable Vm, allocator: Allocator) -> ()
+    with {allocator, err: alloc.AllocError, err: RuntimeError}
+{
+    let slot = read_byte(mutable vm) as usize
+    let n = Vec_Value.len(vm.stack)
+    if slot >= n {
+        raise RuntimeError.stack_underflow
+    }
+    let v = Vec_Value.at(vm.stack, slot)
+    vm_push(mutable vm, v, allocator)?
+}
+
+function exec_set_local(vm: mutable Vm) -> ()
+    with {err: RuntimeError}
+{
+    let slot = read_byte(mutable vm) as usize
+    let n = Vec_Value.len(vm.stack)
+    if slot >= n {
+        raise RuntimeError.stack_underflow
+    }
+    let top = vm_peek(vm, 0)?
+    Vec_Value.set_at(mutable vm.stack, slot, top)
+}
+
+
+
+function read_global_name(vm: mutable Vm) -> String
+    with {err: RuntimeError}
+{
+    let v = read_constant(mutable vm)
+    return match v {
+        case .v_string(let s) => s
+        case _                => raise RuntimeError.undefined_variable(name: "<bad-constant>")
+    }
+}
+
+function exec_define_global(vm: mutable Vm, allocator: Allocator) -> ()
+    with {allocator, err: alloc.AllocError, err: RuntimeError}
+{
+    let name = read_global_name(mutable vm)?
+    let value = vm_peek(vm, 0)?
+    let _ = StringMap_Value.insert(mutable vm.globals, name, value, allocator)?
+    let _ = vm_pop(mutable vm)?
+}
+
+function exec_get_global(vm: mutable Vm, allocator: Allocator) -> ()
+    with {allocator, err: alloc.AllocError, err: RuntimeError}
+{
+    let name = read_global_name(mutable vm)?
+    let lookup = StringMap_Value.get(vm.globals, name)
+    return match lookup {
+        case .some(let v) => vm_push(mutable vm, v, allocator)?
+        case .none        => raise RuntimeError.undefined_variable(name: name)
+    }
+}
+
+function exec_set_global(vm: mutable Vm, allocator: Allocator) -> ()
+    with {allocator, err: alloc.AllocError, err: RuntimeError}
+{
+    let name = read_global_name(mutable vm)?
+    if !StringMap_Value.contains(vm.globals, name) {
+        raise RuntimeError.undefined_variable(name: name)
+    }
+    let top = vm_peek(vm, 0)?
+    let _ = StringMap_Value.insert(mutable vm.globals, name, top, allocator)?
+}
+
+
+
+function exec_equality(vm: mutable Vm, negate: bool, allocator: Allocator) -> ()
+    with {allocator, err: alloc.AllocError, err: RuntimeError, divergence}
+{
+    let b = vm_pop(mutable vm)?
+    let a = vm_pop(mutable vm)?
+    let eq = value.values_equal(a, b)
+    let out = if negate { !eq } else { eq }
+    vm_push(mutable vm, value.value_bool(out), allocator)?
+}
+
+
+
+
+function exec_compare(
+    vm: mutable Vm,
+    direction: i32,
+    inclusive: bool,
+    allocator: Allocator,
+) -> ()
+    with {allocator, err: alloc.AllocError, err: RuntimeError}
+{
+    let (a, b) = pop_two_numbers(mutable vm)?
+    var out: bool = false
+    if direction < 0 {
+        if inclusive {
+            out = a <= b
+        } else {
+            out = a < b
+        }
+    } else {
+        if inclusive {
+            out = a >= b
+        } else {
+            out = a > b
+        }
+    }
+    vm_push(mutable vm, value.value_bool(out), allocator)?
+}
+
+
+
+function exec_add(vm: mutable Vm, allocator: Allocator) -> ()
+    with {allocator, err: alloc.AllocError, err: RuntimeError}
+{
+    let b = vm_pop(mutable vm)?
+    let a = vm_pop(mutable vm)?
+    return match (a, b) {
+        case (.v_number(let an), .v_number(let bn)) => {
+            vm_push(mutable vm, value.value_number(an + bn), allocator)?
+        }
+        case (.v_string(let asv), .v_string(let bsv)) => {
+            let joined = string_concat_extern(asv, bsv, allocator)?
+            vm_push(mutable vm, value.value_string(take joined), allocator)?
+        }
+        case _ => raise RuntimeError.operands_must_be_two_numbers_or_strings
+    }
+}
+
+
+function exec_arith(vm: mutable Vm, op_kind: opcode.Op, allocator: Allocator) -> ()
+    with {allocator, err: alloc.AllocError, err: RuntimeError}
+{
+    let (a, b) = pop_two_numbers(mutable vm)?
+    let r = match op_kind {
+        case .op_subtract => a - b
+        case .op_multiply => a * b
+        case .op_divide   => a / b
+        case _            => 0.0
+    }
+    vm_push(mutable vm, value.value_number(r), allocator)?
+}
+
+
+function exec_negate(vm: mutable Vm, allocator: Allocator) -> ()
+    with {allocator, err: alloc.AllocError, err: RuntimeError}
+{
+    let n = pop_one_number(mutable vm)?
+    vm_push(mutable vm, value.value_number(0.0 - n), allocator)?
+}
+
+
+function exec_not(vm: mutable Vm, allocator: Allocator) -> ()
+    with {allocator, err: alloc.AllocError, err: RuntimeError}
+{
+    let v = vm_pop(mutable vm)?
+    vm_push(mutable vm, value.value_bool(value.is_falsey(v)), allocator)?
+}
+
+
+function exec_print(
+    vm: mutable Vm,
+    out: Stdout,
+    allocator: Allocator,
+) -> ()
+    with {out, allocator, err: alloc.AllocError, err: RuntimeError}
+{
+    let v = vm_pop(mutable vm)?
+    let s = value.value_to_string(v, allocator)?
+    out.print_line(s)
+}
+
+
+
+function exec_jump(vm: mutable Vm) -> () {
+    let dist = read_u16(mutable vm) as usize
+    vm.ip = vm.ip + dist
+}
+
+
+
+
+function exec_jump_if_false(vm: mutable Vm) -> ()
+    with {err: RuntimeError}
+{
+    let dist = read_u16(mutable vm) as usize
+    let v = vm_peek(vm, 0)?
+    if value.is_falsey(v) {
+        vm.ip = vm.ip + dist
+    }
+}
+
+
+function exec_loop_back(vm: mutable Vm) -> () {
+    let dist = read_u16(mutable vm) as usize
+    vm.ip = vm.ip - dist
+}
+
+
+
+
+
+
+
+
+
+
+public function vm_run(
+    vm: mutable Vm,
+    out: Stdout,
+    allocator: mutable Allocator,
+) -> ()
+    with {out, allocator, err: alloc.AllocError,
+          err: RuntimeError, err: opcode.OpcodeError, divergence}
+{
+    loop {
+        let byte = read_byte(mutable vm)
+        let op = opcode.decode_byte(byte)?
+        let done = dispatch_op(mutable vm, op, out, allocator)?
+        if done { return }
+    }
+}
+
+
+
+function dispatch_op(
+    vm: mutable Vm,
+    op: opcode.Op,
+    out: Stdout,
+    allocator: Allocator,
+) -> bool
+    with {out, allocator, err: alloc.AllocError, err: RuntimeError, divergence}
+{
+    return match op {
+        case .op_constant      => { exec_constant(mutable vm, allocator)?; false }
+        case .op_nil           => { vm_push(mutable vm, value.value_nil(), allocator)?; false }
+        case .op_true          => { vm_push(mutable vm, value.value_bool(true),  allocator)?; false }
+        case .op_false         => { vm_push(mutable vm, value.value_bool(false), allocator)?; false }
+        case .op_pop           => { let _ = vm_pop(mutable vm)?; false }
+        case .op_get_local     => { exec_get_local(mutable vm, allocator)?; false }
+        case .op_set_local     => { exec_set_local(mutable vm)?; false }
+        case .op_get_global    => { exec_get_global(mutable vm, allocator)?; false }
+        case .op_set_global    => { exec_set_global(mutable vm, allocator)?; false }
+        case .op_define_global => { exec_define_global(mutable vm, allocator)?; false }
+        case .op_equal         => { exec_equality(mutable vm, false, allocator)?; false }
+        case .op_not_equal     => { exec_equality(mutable vm, true,  allocator)?; false }
+        case .op_greater       => { exec_compare(mutable vm,  1, false, allocator)?; false }
+        case .op_greater_equal => { exec_compare(mutable vm,  1, true,  allocator)?; false }
+        case .op_less          => { exec_compare(mutable vm, -1, false, allocator)?; false }
+        case .op_less_equal    => { exec_compare(mutable vm, -1, true,  allocator)?; false }
+        case .op_add           => { exec_add(mutable vm, allocator)?; false }
+        case .op_subtract      => { exec_arith(mutable vm, op, allocator)?; false }
+        case .op_multiply      => { exec_arith(mutable vm, op, allocator)?; false }
+        case .op_divide        => { exec_arith(mutable vm, op, allocator)?; false }
+        case .op_not           => { exec_not(mutable vm, allocator)?; false }
+        case .op_negate        => { exec_negate(mutable vm, allocator)?; false }
+        case .op_print         => { exec_print(mutable vm, out, allocator)?; false }
+        case .op_jump          => { exec_jump(mutable vm); false }
+        case .op_jump_if_false => { exec_jump_if_false(mutable vm)?; false }
+        case .op_loop_back     => { exec_loop_back(mutable vm); false }
+        case .op_return        => true
+    }
+}
+
+
+
+
+
+
+
+public function vm_current_line(vm: Vm) -> u32 {
+    if vm.ip == 0 { return 0 }
+    let i = vm.ip - 1
+    if i >= chunk.chunk_code_len(vm.program) { return 0 }
+    return chunk.chunk_line(vm.program, i)
+}

@@ -1,0 +1,80 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/edda-span",
+    "crates/edda-intern",
+    "crates/edda-diag",
+    "crates/edda-syntax",
+    "crates/edda-resolve",
+    "crates/edda-types",
+    "crates/edda-refine",
+    "crates/edda-comptime",
+    "crates/edda-codegen",
+    "crates/edda-mir",
+    "crates/edda-compile",
+    "crates/edda-link",
+    "crates/edda-cache",
+    "crates/edda-manifest",
+    "crates/edda-mimir-archive",
+    "crates/edda-mimir-canonical",
+    "crates/edda-mimir-crypto",
+    "crates/edda-mimir-hash",
+    "crates/edda-mimir-registry",
+    "crates/edda-target",
+    "crates/edda-structmap",
+    "crates/edda-driver",
+    "crates/edda-daemon",
+    "crates/edda-lsp",
+    "crates/edda-mcp",
+    "crates/edda-cli",
+    "crates/edda-rt",
+    "crates/edda-rt-alloc",
+    "crates/edda-rt-stats",
+    "xtask",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+version = "0.0.0"
+
+[workspace.dependencies]
+edda-span      = { path = "crates/edda-span" }
+edda-intern    = { path = "crates/edda-intern" }
+edda-diag      = { path = "crates/edda-diag" }
+edda-syntax    = { path = "crates/edda-syntax" }
+edda-resolve   = { path = "crates/edda-resolve" }
+edda-types     = { path = "crates/edda-types" }
+edda-refine    = { path = "crates/edda-refine" }
+edda-comptime  = { path = "crates/edda-comptime" }
+edda-codegen   = { path = "crates/edda-codegen" }
+edda-mir       = { path = "crates/edda-mir" }
+edda-compile   = { path = "crates/edda-compile" }
+edda-link      = { path = "crates/edda-link" }
+edda-cache     = { path = "crates/edda-cache" }
+edda-manifest      = { path = "crates/edda-manifest" }
+edda-mimir-archive  = { path = "crates/edda-mimir-archive" }
+edda-mimir-canonical = { path = "crates/edda-mimir-canonical" }
+edda-mimir-crypto   = { path = "crates/edda-mimir-crypto" }
+edda-mimir-hash     = { path = "crates/edda-mimir-hash" }
+edda-mimir-registry = { path = "crates/edda-mimir-registry" }
+edda-target    = { path = "crates/edda-target" }
+edda-structmap = { path = "crates/edda-structmap" }
+edda-driver    = { path = "crates/edda-driver" }
+edda-daemon    = { path = "crates/edda-daemon" }
+edda-lsp       = { path = "crates/edda-lsp" }
+edda-mcp       = { path = "crates/edda-mcp" }
+toml           = "0.8"
+serde          = { version = "1.0", features = ["derive"] }
+serde_json     = "1.0"
+notify         = "6.1"
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1

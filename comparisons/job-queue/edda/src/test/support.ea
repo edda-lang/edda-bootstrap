@@ -1,0 +1,179 @@
+
+
+
+
+
+
+
+import std.mem.alloc
+import std.collections.vec
+import local.queue.queue.queue
+import local.queue.error as queue_error
+import local.job.job
+
+spec std.collections.vec.Vec(u64)
+spec std.collections.vec.Vec(String)
+
+
+
+
+
+
+public stable function default_cfg() -> job.QueueConfig {
+    return job.config(
+        100,
+        50,
+        3,
+        100_000_000,
+        30_000_000_000,
+        0,
+        1_000_000_000,
+        10_000,
+    )
+}
+
+
+public stable function tight_cfg(
+    active_cap: usize where active_cap > 0,
+    dead_cap: usize where dead_cap > 0,
+) -> job.QueueConfig {
+    return job.config(
+        active_cap,
+        dead_cap,
+        3,
+        100_000_000,
+        30_000_000_000,
+        0,
+        1_000_000_000,
+        10_000,
+    )
+}
+
+
+public stable function jittered_cfg(jitter_per_million: u32 where jitter_per_million <= 1_000_000) -> job.QueueConfig {
+    return job.config(
+        100,
+        50,
+        3,
+        100_000_000,
+        30_000_000_000,
+        jitter_per_million,
+        1_000_000_000,
+        10_000,
+    )
+}
+
+
+
+public stable function audit_bounded_cfg(retention: usize where retention > 0) -> job.QueueConfig {
+    return job.config(
+        100,
+        50,
+        3,
+        100_000_000,
+        30_000_000_000,
+        0,
+        1_000_000_000,
+        retention,
+    )
+}
+
+
+public function enqueue_n(
+    q: mutable queue.JobQueue,
+    n: u32,
+    allocator: Allocator,
+) -> u64
+    with {allocator, err: queue_error.QueueError, err: alloc.AllocError}
+{
+    var last_id: u64 = 0
+    var i: u32 = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        last_id = queue.enqueue(mutable q, "payload", allocator)?
+        i = i + 1
+    }
+    return last_id
+}
+
+
+public function enqueue_n_with_priority(
+    q: mutable queue.JobQueue,
+    n: u32,
+    priority: u32,
+    allocator: Allocator,
+) -> u64
+    with {allocator, err: queue_error.QueueError, err: alloc.AllocError}
+{
+    var last_id: u64 = 0
+    var i: u32 = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        last_id = queue.enqueue_full(mutable q, "payload", priority, 0, allocator)?
+        i = i + 1
+    }
+    return last_id
+}
+
+
+
+
+
+
+
+
+public function empty_u64(allocator: Allocator) -> [u64]
+    with {allocator, err: alloc.AllocError}
+{
+    return Vec_u64._alloc_array(allocator, 0)?
+}
+
+
+public function one_u64(a: u64, allocator: Allocator) -> [u64]
+    with {allocator, err: alloc.AllocError}
+{
+    let slice: [u64] = Vec_u64._alloc_array(allocator, 1)?
+    slice[0] = a
+    return slice
+}
+
+
+public function two_u64(a: u64, b: u64, allocator: Allocator) -> [u64]
+    with {allocator, err: alloc.AllocError}
+{
+    let slice: [u64] = Vec_u64._alloc_array(allocator, 2)?
+    slice[0] = a
+    slice[1] = b
+    return slice
+}
+
+
+
+public function empty_str(allocator: Allocator) -> [String]
+    with {allocator, err: alloc.AllocError}
+{
+    return Vec_String._alloc_array(allocator, 0)?
+}
+
+
+public function one_str(a: String, allocator: Allocator) -> [String]
+    with {allocator, err: alloc.AllocError}
+{
+    let slice: [String] = Vec_String._alloc_array(allocator, 1)?
+    slice[0] = a
+    return slice
+}
+
+
+public function two_str(a: String, b: String, allocator: Allocator) -> [String]
+    with {allocator, err: alloc.AllocError}
+{
+    let slice: [String] = Vec_String._alloc_array(allocator, 2)?
+    slice[0] = a
+    slice[1] = b
+    return slice
+}

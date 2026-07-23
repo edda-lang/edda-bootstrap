@@ -1,0 +1,16 @@
+[package]
+name = "edda-resolve"
+description = "Name resolution, scopes, BindingId, and the source-import graph."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+edda-span.workspace = true
+edda-intern.workspace = true
+edda-diag.workspace = true
+edda-syntax.workspace = true
+edda-manifest.workspace = true
+edda-cache.workspace = true

@@ -1,0 +1,274 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import std.mem.alloc
+import std.io.stream
+
+import local.chunk
+import local.opcode
+import local.value
+
+
+
+
+
+
+function bytes_to_string_extern(b: take [u8]) -> String {
+    return String.from_utf8(take b)
+}
+
+
+
+
+
+function string_concat_extern(a: String, b: String, allocator: Allocator) -> String
+    with {allocator, err: alloc.AllocError}
+    extern "__edda_string_concat"
+
+
+
+
+
+
+public function disassemble_chunk(
+    out: Stdout,
+    c: chunk.Chunk,
+    name: String,
+    allocator: mutable Allocator,
+) -> ()
+    with {out, allocator, err: alloc.AllocError, err: opcode.OpcodeError, divergence}
+{
+    out.print(string_concat_extern("== ", name, allocator)?)
+    out.print_line(" ==")
+    var offset: usize = 0
+    loop {
+        if offset >= chunk.chunk_code_len(c) { break }
+        offset = disassemble_instruction(out, c, offset, mutable allocator)?
+    }
+}
+
+
+
+
+
+
+
+public function disassemble_instruction(
+    out: Stdout,
+    c: chunk.Chunk,
+    offset: usize,
+    allocator: mutable Allocator,
+) -> usize
+    with {out, allocator, err: alloc.AllocError, err: opcode.OpcodeError, divergence}
+{
+    out.print(pad_left_usize(offset, 4, allocator)?)
+    out.print(" ")
+    let line = chunk.chunk_line(c, offset)
+    if offset > 0 && line == chunk.chunk_line(c, offset - 1) {
+        out.print("   |")
+    } else {
+        out.print(pad_left_usize(line as usize, 4, allocator)?)
+    }
+    out.print(" ")
+    let byte = chunk.chunk_byte(c, offset)
+    let op = opcode.decode_byte(byte)?
+    let mnemonic = opcode.op_mnemonic(op)
+    out.print(pad_right(mnemonic, 18, allocator)?)
+    return print_operand(out, c, op, offset, allocator)?
+}
+
+
+
+function print_operand(
+    out: Stdout,
+    c: chunk.Chunk,
+    op: opcode.Op,
+    offset: usize,
+    allocator: Allocator,
+) -> usize
+    with {out, allocator, err: alloc.AllocError, divergence}
+{
+    return match op {
+        case .op_constant      => print_constant_operand(out, c, offset, allocator)?
+        case .op_get_local     => print_byte_operand(out, c, offset, allocator)?
+        case .op_set_local     => print_byte_operand(out, c, offset, allocator)?
+        case .op_get_global    => print_constant_operand(out, c, offset, allocator)?
+        case .op_set_global    => print_constant_operand(out, c, offset, allocator)?
+        case .op_define_global => print_constant_operand(out, c, offset, allocator)?
+        case .op_jump          => print_jump_operand(out, c, offset, 1, allocator)?
+        case .op_jump_if_false => print_jump_operand(out, c, offset, 1, allocator)?
+        case .op_loop_back     => print_jump_operand(out, c, offset, -1, allocator)?
+        case _                 => print_no_operand(out, offset)
+    }
+}
+
+
+function print_no_operand(out: Stdout, offset: usize) -> usize
+    with {out}
+{
+    out.print_line("")
+    return offset + 1
+}
+
+
+
+
+function print_constant_operand(
+    out: Stdout,
+    c: chunk.Chunk,
+    offset: usize,
+    allocator: Allocator,
+) -> usize
+    with {out, allocator, err: alloc.AllocError, divergence}
+{
+    let idx = chunk.chunk_byte(c, offset + 1)
+    out.print(pad_left_usize(idx as usize, 4, allocator)?)
+    out.print(" '")
+    let constant = chunk.chunk_constant(c, idx as usize)
+    out.print(value.value_to_string(constant, allocator)?)
+    out.print_line("'")
+    return offset + 2
+}
+
+
+
+function print_byte_operand(
+    out: Stdout,
+    c: chunk.Chunk,
+    offset: usize,
+    allocator: Allocator,
+) -> usize
+    with {out, allocator, err: alloc.AllocError, divergence}
+{
+    let slot = chunk.chunk_byte(c, offset + 1)
+    out.print(pad_left_usize(slot as usize, 4, allocator)?)
+    out.print_line("")
+    return offset + 2
+}
+
+
+
+
+
+function print_jump_operand(
+    out: Stdout,
+    c: chunk.Chunk,
+    offset: usize,
+    direction: i32,
+    allocator: Allocator,
+) -> usize
+    with {out, allocator, err: alloc.AllocError, divergence}
+{
+    let dist = chunk.chunk_read_u16(c, offset + 1) as usize
+    out.print(pad_left_usize(offset, 4, allocator)?)
+    out.print(" -> ")
+    if direction >= 0 {
+        out.print(pad_left_usize(offset + 3 + dist, 4, allocator)?)
+    } else {
+        out.print(pad_left_usize(offset + 3 - dist, 4, allocator)?)
+    }
+    out.print_line("")
+    return offset + 3
+}
+
+
+
+
+
+
+
+
+
+function pad_left_usize(n: usize, width: usize, allocator: Allocator) -> String
+    with {allocator, err: alloc.AllocError, divergence}
+{
+    let raw = format_usize(n, allocator)?
+    return pad_left(raw, width, allocator)?
+}
+
+
+
+
+function format_usize(n: usize, allocator: Allocator) -> String
+    with {allocator, err: alloc.AllocError}
+{
+    return format_f64_extern(n as f64, allocator)?
+}
+
+
+
+
+
+
+
+function format_f64_extern(n: f64, allocator: Allocator) -> String
+    with {allocator, err: alloc.AllocError}
+    extern "__edda_format_f64"
+
+
+
+
+function pad_left(s: String, width: usize, allocator: Allocator) -> String
+    with {allocator, err: alloc.AllocError, divergence}
+{
+    let n = s.bytes().len()
+    if n >= width { return s }
+    let pad = width - n
+    return string_concat_extern(spaces(pad, allocator)?, s, allocator)?
+}
+
+
+
+function pad_right(s: String, width: usize, allocator: Allocator) -> String
+    with {allocator, err: alloc.AllocError, divergence}
+{
+    let n = s.bytes().len()
+    if n >= width { return s }
+    let pad = width - n
+    return string_concat_extern(s, spaces(pad, allocator)?, allocator)?
+}
+
+
+function spaces(n: usize, allocator: Allocator) -> String
+    with {allocator, err: alloc.AllocError, divergence}
+{
+    var buf: [u8] = alloc_u8_array(allocator, n)?
+    var i: usize = 0
+    loop {
+        if i >= n { break }
+        buf[i] = 32
+        i = i + 1
+    }
+    return bytes_to_string_extern(take buf)
+}
+
+
+
+
+function alloc_u8_array(allocator: Allocator, n: usize) -> [u8]
+    with {allocator, err: alloc.AllocError}
+    extern "__edda_alloc_array"

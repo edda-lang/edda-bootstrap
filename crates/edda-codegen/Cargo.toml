@@ -1,0 +1,19 @@
+[package]
+name = "edda-codegen"
+description = "Spec instantiation, monomorphization, and materialized .ea artifacts."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+edda-span.workspace = true
+edda-intern.workspace = true
+edda-diag.workspace = true
+edda-syntax.workspace = true
+edda-types.workspace = true
+edda-comptime.workspace = true
+edda-cache.workspace = true
+smol_str = "0.3"
+time = "0.3"

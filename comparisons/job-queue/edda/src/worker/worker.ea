@@ -1,0 +1,95 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+public type WorkerEntry {
+    worker_id: u64,
+    capabilities: [String],
+}
+
+
+
+
+public type WorkerView {
+    worker_id: u64,
+    capabilities: [String],
+}
+
+
+
+
+public function string_equals(a: String, b: String) -> bool {
+    let ab: [u8] = a.bytes()
+    let bb: [u8] = b.bytes()
+    let n: usize = ab.len()
+    if n != bb.len() { return false }
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        if ab[i] != bb[i] { return false }
+        i = i + 1
+    }
+    return true
+}
+
+
+
+
+public function contains_string(haystack: [String], needle: String) -> bool {
+    let n: usize = haystack.len()
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        if string_equals(haystack[i], needle) {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+
+
+
+public function capabilities_cover(worker_caps: [String], required: [String]) -> bool {
+    let n: usize = required.len()
+    var i: usize = 0
+    loop
+        decreases n - i
+    {
+        if i >= n { break }
+        if !contains_string(worker_caps, required[i]) {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
