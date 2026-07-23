@@ -72,7 +72,7 @@ The workspace is 28 library crates plus `edda-cli` (the `edda` binary).
 
 ## Installing a prebuilt release
 
-Once a release is published on this repo's [Releases page](https://github.com/edda-lang/edda-bootstrap/releases), installing needs no Rust toolchain:
+Prebuilt releases are on this repo's [Releases page](https://github.com/edda-lang/edda-bootstrap/releases). Installing needs no Rust toolchain, no LLVM, and no Z3:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/edda-lang/edda-bootstrap/main/install.sh | bash   # Linux, macOS
